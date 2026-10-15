@@ -15,8 +15,11 @@ class Recognizer {
   bool _available = false;
   String? _localeId;
 
-  /// Dipanggil setiap ada hasil: (teks, final?).
-  void Function(String text, bool isFinal)? onResult;
+  /// Dipanggil setiap ada hasil: (teks, final?, nomor sesi dengar).
+  /// Nomor sesi naik setiap kali pengenal suara dimulai ulang setelah jeda.
+  void Function(String text, bool isFinal, int session)? onResult;
+
+  int _session = 0;
 
   /// Dipanggil bila terjadi galat yang perlu diketahui pengguna.
   void Function(String message)? onFatalError;
@@ -80,11 +83,12 @@ class Recognizer {
     if (!_wanted || !_available) return;
     if (_speech.isListening) return;
     final gen = _generation;
+    final session = ++_session;
     try {
       await _speech.listen(
         onResult: (SpeechRecognitionResult r) {
           if (gen != _generation || !_wanted) return;
-          onResult?.call(r.recognizedWords, r.finalResult);
+          onResult?.call(r.recognizedWords, r.finalResult, session);
         },
         localeId: _localeId,
         listenFor: const Duration(minutes: 2),

@@ -193,16 +193,32 @@ class SessionController extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   // Pengecekan bacaan
 
-  void _onResult(String text, bool isFinal) {
+  int _session = -1;
+
+  void _onResult(String text, bool isFinal, int session) {
     if (_disposed) return;
     // Saat jeda singkat setelah "Benar" pada murajaah, bacaan tetap ditampung.
     if (phase != Phase.listening && !(phase == Phase.correct && !isSambung)) {
       return;
     }
+    // Hasil terlambat dari sesi lama (sudah disimpan) diabaikan.
+    if (session < _session) return;
+    // Sesi dengar baru tanpa hasil final sesi lama: simpan hasil sementaranya.
+    if (session != _session) {
+      if (_partialText.isNotEmpty) {
+        _finalText += _partialText;
+        _finalRaw = '$_finalRaw $_partialRaw'.trim();
+      }
+      _partialText = '';
+      _partialRaw = '';
+      _session = session;
+    }
     final norm = ArabicMatcher.normalize(text);
     if (isFinal) {
-      _finalText += norm;
-      _finalRaw = '$_finalRaw $text'.trim();
+      // Sebagian HP mengirim hasil final kosong/terpotong; pakai yang lebih lengkap.
+      final useFinal = norm.length >= _partialText.length * 0.6;
+      _finalText += useFinal ? norm : _partialText;
+      _finalRaw = '$_finalRaw ${useFinal ? text : _partialRaw}'.trim();
       _partialText = '';
       _partialRaw = '';
     } else {

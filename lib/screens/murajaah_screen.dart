@@ -42,6 +42,9 @@ class MurajaahController extends ChangeNotifier {
   late final String _lastNorm;
   String _finalText = '';
   String _partialText = '';
+  String _partialRaw = '';
+  String _rawText = '';
+  int _session = -1;
   Timer? _clock;
   DateTime? _startedAt;
   bool _disposed = false;
@@ -94,17 +97,47 @@ class MurajaahController extends ChangeNotifier {
     if (phase == MurajaahPhase.error) _begin();
   }
 
-  void _onResult(String text, bool isFinal) {
+  void _onResult(String text, bool isFinal, int session) {
     if (_disposed || phase != MurajaahPhase.reading) return;
+    // Sesi dengar baru dimulai tanpa hasil final dari sesi sebelumnya:
+    // simpan bacaan sementara sesi lama agar tidak hilang.
+    // Hasil terlambat dari sesi lama (sudah disimpan) diabaikan.
+    if (session < _session) return;
+    if (session != _session) {
+      _commitPartial();
+      _session = session;
+    }
     final norm = ArabicMatcher.normalize(text);
     if (isFinal) {
-      _finalText += norm;
+      // Sebagian HP mengirim hasil final kosong/terpotong setelah jeda;
+      // dalam hal itu pakai hasil sementara yang lebih lengkap.
+      final useFinal = norm.length >= _partialText.length * 0.6;
+      _append(useFinal ? norm : _partialText, useFinal ? text : _partialRaw);
       _partialText = '';
+      _partialRaw = '';
       _maybeAutoFinish();
     } else {
       _partialText = norm;
+      _partialRaw = text;
     }
     _notify();
+  }
+
+  void _commitPartial() {
+    if (_partialText.isNotEmpty) _append(_partialText, _partialRaw);
+    _partialText = '';
+    _partialRaw = '';
+  }
+
+  void _append(String norm, String raw) {
+    _finalText += norm;
+    if (raw.isNotEmpty) _rawText = '$_rawText $raw'.trim();
+  }
+
+  /// Potongan terakhir yang terdengar (untuk ditampilkan).
+  String get heardTail {
+    final raw = '$_rawText $_partialRaw'.trim();
+    return raw.length > 90 ? '…${raw.substring(raw.length - 90)}' : raw;
   }
 
   /// Selesai otomatis bila ayat terakhir sudah terdengar di ujung bacaan.
@@ -124,7 +157,8 @@ class MurajaahController extends ChangeNotifier {
     message = 'Memeriksa bacaan…';
     _clock?.cancel();
     _notify();
-    final heard = heardSoFar;
+    _commitPartial();
+    final heard = _finalText;
     await _rec.stop();
     // Beri kesempatan UI menampilkan status sebelum perhitungan.
     await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -156,6 +190,8 @@ class MurajaahController extends ChangeNotifier {
     await _rec.stop();
     _finalText = '';
     _partialText = '';
+    _partialRaw = '';
+    _rawText = '';
     verdicts = [];
     recordedSurahs = [];
     _startedAt = DateTime.now();
@@ -303,6 +339,18 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
                     const SizedBox(height: 6),
                     Text('Perkiraan kemajuan ${(c.progress * 100).round()}%',
                         style: const TextStyle(color: Colors.black45)),
+                    if (c.heardTail.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        c.heardTail,
+                        textDirection: TextDirection.rtl,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 17, color: Colors.black38),
+                      ),
+                    ],
                   ],
                 ],
               ),
