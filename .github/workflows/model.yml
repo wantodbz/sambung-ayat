@@ -28,7 +28,7 @@ jobs:
         run: |
           git clone --depth 1 --branch v1.5.4 https://github.com/ggerganov/whisper.cpp wcpp
           git clone --depth 1 https://github.com/openai/whisper owhisper
-          sed -i 's/hparams\["max_length"\]/hparams.get("max_length", hparams.get("max_target_positions", 448))/' wcpp/models/convert-h5-to-ggml.py
+          sed -i 's/hparams\["max_length"\]/hparams.get("max_target_positions", 448)/' wcpp/models/convert-h5-to-ggml.py
           make -C wcpp -j4 main quantize
 
       - name: Konversi dan kuantisasi
