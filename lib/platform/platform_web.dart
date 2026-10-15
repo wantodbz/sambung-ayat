@@ -137,10 +137,25 @@ class _WhisperSpeech extends SpeechEngine {
     }
     try {
       await prepareFromGesture();
-      await _ensureLoaded(Settings.instance.model);
+    } catch (e) {
+      _opening = null; // agar bisa dicoba lagi
+      onFatalError?.call('Mikrofon tidak bisa dibuka ($e). Pastikan izin '
+          'mikrofon diberikan: Pengaturan iPhone → Safari → Mikrofon → Izinkan, '
+          'lalu ketuk "Coba lagi".');
+      return false;
+    }
+    final m = Settings.instance.model;
+    final had = await _bridge.modelSize(_modelUrl(m)).toDart;
+    if (had.toDartInt <= 0) {
+      onFatalError?.call('Model pengecek belum diunduh. Buka Pengaturan (⚙) '
+          'di halaman utama, unduh model ${m.label}, lalu coba lagi.');
+      return false;
+    }
+    try {
+      await _ensureLoaded(m);
       return true;
     } catch (e) {
-      onFatalError?.call('Gagal menyiapkan mikrofon/model: $e');
+      onFatalError?.call('Model pengecek gagal dimuat ($e).');
       return false;
     }
   }
@@ -391,6 +406,7 @@ class _HybridSpeech extends SpeechEngine {
 
 class _WebMurajaahIO extends MurajaahIO {
   Future<JSBoolean>? _opening;
+  String? lastError;
 
   @override
   Future<bool> hasModel(QuranModel m) async => await modelSize(m) > 0;
@@ -428,8 +444,9 @@ class _WebMurajaahIO extends MurajaahIO {
       _opening ??= _recorder.open().toDart;
       await _opening;
       return true;
-    } catch (_) {
+    } catch (e) {
       _opening = null;
+      lastError = '$e';
       return false;
     }
   }
