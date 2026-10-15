@@ -46,6 +46,21 @@ class ModelStore {
     return await f.exists() && await f.length() > 10 * 1024 * 1024;
   }
 
+  /// Ukuran berkas model yang tersimpan (byte), 0 bila belum ada.
+  Future<int> size(QuranModel m) async {
+    final f = File(await path(m));
+    return await f.exists() ? await f.length() : 0;
+  }
+
+  /// Hapus sisa unduhan yang tidak selesai.
+  Future<void> cleanupPartial() async {
+    try {
+      await for (final e in (await _dir()).list()) {
+        if (e is File && e.path.endsWith('.part')) await e.delete();
+      }
+    } catch (_) {}
+  }
+
   Future<void> delete(QuranModel m) async {
     final f = File(await path(m));
     if (await f.exists()) await f.delete();

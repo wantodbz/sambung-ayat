@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../main.dart';
-import '../services/model_store.dart';
 import '../services/settings.dart';
+import '../widgets/model_picker.dart';
 import 'about_screen.dart';
 import 'download_screen.dart';
 import 'parent_screen.dart';
@@ -151,21 +151,11 @@ class HomeScreen extends StatelessWidget {
                           TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 4),
                   const Text(
-                      'Bila model belum ada, akan diunduh saat Murajaah dibuka.',
+                      'Kedua model bisa disimpan sekaligus. Model yang dipilih '
+                      'tapi belum diunduh akan diunduh saat Murajaah dibuka.',
                       style: TextStyle(color: Colors.black54)),
-                  for (final m in QuranModel.values)
-                    RadioListTile<QuranModel>(
-                      value: m,
-                      groupValue: Settings.instance.model,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(m.label),
-                      subtitle: Text(m.hint),
-                      onChanged: (v) async {
-                        if (v == null) return;
-                        await Settings.instance.setModel(v);
-                        setState(() {});
-                      },
-                    ),
+                  const SizedBox(height: 10),
+                  const ModelPicker(),
                 ],
               ),
             ),

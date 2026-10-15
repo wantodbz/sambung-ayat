@@ -16,6 +16,7 @@ import '../services/model_store.dart';
 import '../services/parent_report.dart';
 import '../services/settings.dart';
 import '../services/wav.dart';
+import '../widgets/model_picker.dart';
 
 enum MurajaahPhase {
   preparing,
@@ -124,8 +125,8 @@ class MurajaahController extends ChangeNotifier {
       _fail('Izin mikrofon belum diberikan. Aktifkan di Pengaturan HP.');
       return;
     }
-    final dir = await getTemporaryDirectory();
-    _wavPath = '${dir.path}/murajaah.wav';
+    await deleteRecording();
+    _wavPath = await recordingPath();
     try {
       await _recorder.start(
         const RecordConfig(
@@ -164,8 +165,7 @@ class MurajaahController extends ChangeNotifier {
   void _fail(String msg) {
     phase = MurajaahPhase.error;
     message = msg;
-    micActive = false;
-    _clock?.cancel();
+    _stopAndDiscard();
     _notify();
   }
 
@@ -199,9 +199,12 @@ class MurajaahController extends ChangeNotifier {
       final pcm = await readWavMono(path);
       chunks = splitOnPauses(pcm);
     } catch (e) {
+      await deleteRecording();
       _fail('Rekaman tidak bisa dibaca: $e');
       return;
     }
+    // Suara sudah di memori: berkas rekaman langsung dihapus.
+    await deleteRecording();
     if (chunks.isEmpty) {
       _fail('Tidak ada suara bacaan yang terekam. Pastikan mikrofon tidak '
           'tertutup lalu ulangi.');
@@ -270,9 +273,48 @@ class MurajaahController extends ChangeNotifier {
       HapticFeedback.heavyImpact();
     }
     _notify();
+  }
+
+  /// Lokasi berkas rekaman sementara.
+  static Future<String> recordingPath() async =>
+      '${(await getTemporaryDirectory()).path}/murajaah.wav';
+
+  /// Hapus rekaman sementara (dipanggil di semua kondisi).
+  static Future<void> deleteRecording() async {
     try {
-      await File(path).delete();
+      final f = File(await recordingPath());
+      if (await f.exists()) await f.delete();
     } catch (_) {}
+  }
+
+  /// Hentikan perekaman yang sedang berjalan lalu hapus berkasnya.
+  Future<void> _stopAndDiscard() async {
+    _clock?.cancel();
+    await _ampSub?.cancel();
+    _ampSub = null;
+    micActive = false;
+    level = 0;
+    try {
+      if (await _recorder.isRecording()) await _recorder.stop();
+    } catch (_) {}
+    await deleteRecording();
+  }
+
+  /// Ganti model koreksi. Bila model belum diunduh, rekaman dihentikan,
+  /// model diunduh, lalu perekaman dimulai ulang.
+  Future<void> switchModel(QuranModel m) async {
+    await Settings.instance.setModel(m);
+    model = m;
+    if (await ModelStore.instance.has(m)) {
+      if (phase == MurajaahPhase.needModel || phase == MurajaahPhase.error) {
+        await _beginRecording();
+      } else {
+        _notify();
+      }
+      return;
+    }
+    await _stopAndDiscard();
+    await downloadModel(m);
   }
 
   static String _fmtSec(int s) =>
@@ -282,11 +324,7 @@ class MurajaahController extends ChangeNotifier {
   Future<void> restart() async {
     await _trSub?.cancel();
     _trSub = null;
-    await _ampSub?.cancel();
-    _ampSub = null;
-    try {
-      if (await _recorder.isRecording()) await _recorder.stop();
-    } catch (_) {}
+    await _stopAndDiscard();
     verdicts = [];
     recordedSurahs = [];
     heardTail = '';
@@ -305,7 +343,13 @@ class MurajaahController extends ChangeNotifier {
     _clock?.cancel();
     _ampSub?.cancel();
     _trSub?.cancel();
-    _recorder.stop().catchError((_) => null).whenComplete(_recorder.dispose);
+    _recorder
+        .stop()
+        .catchError((_) => null)
+        .whenComplete(() async {
+      await deleteRecording();
+      await _recorder.dispose();
+    });
     super.dispose();
   }
 }
@@ -352,6 +396,63 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
   String _fmt(Duration d) =>
       '${d.inMinutes.toString().padLeft(2, '0')}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
 
+  Future<void> _pickModel() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Model koreksi',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              const Text(
+                  'Model yang tidak dipakai tetap tersimpan, jadi bisa '
+                  'berganti kapan saja tanpa unduh ulang.',
+                  style: TextStyle(color: Colors.black54)),
+              const SizedBox(height: 12),
+              ModelPicker(onSelected: (_) => Navigator.pop(ctx)),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    final m = Settings.instance.model;
+    final ready = await ModelStore.instance.has(m);
+    if (m != c.model || !ready) {
+      if (!ready && c.phase == MurajaahPhase.reading && c.elapsed.inSeconds > 5) {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text('Unduh model ${m.label}?'),
+            content: const Text(
+                'Model ini belum diunduh. Rekaman yang sedang berjalan akan '
+                'dihentikan dan dihapus, lalu dimulai lagi setelah unduhan selesai.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Batal')),
+              FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Unduh')),
+            ],
+          ),
+        );
+        if (ok != true) {
+          await Settings.instance.setModel(c.model);
+          return;
+        }
+      }
+      await c.switchModel(m);
+    }
+  }
+
   Widget _reading() {
     final q = QuranData.instance;
     final first = c.ayahs.first;
@@ -382,6 +483,20 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
             style: const TextStyle(
                 color: Colors.black54, fontWeight: FontWeight.w600),
           ),
+          if (reading || error || ph == MurajaahPhase.needModel)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: ActionChip(
+                  avatar: const Icon(Icons.memory, size: 18,
+                      color: AppColors.green),
+                  label: Text('Model: ${c.model.label} · Ganti'),
+                  backgroundColor: AppColors.orangeSoft,
+                  side: BorderSide.none,
+                  onPressed: _pickModel,
+                ),
+              ),
+            ),
           Expanded(
             child: Center(
               child: SingleChildScrollView(

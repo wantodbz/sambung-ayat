@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'data/quran.dart';
 import 'screens/home_screen.dart';
+import 'screens/murajaah_screen.dart';
+import 'services/model_store.dart';
 import 'services/parent_report.dart';
 import 'services/settings.dart';
 
@@ -12,6 +14,9 @@ Future<void> main() async {
     Settings.instance.load(),
     ParentReport.instance.load(),
   ]);
+  // Bersihkan sisa rekaman/unduhan yang tertinggal (mis. aplikasi ditutup paksa).
+  MurajaahController.deleteRecording();
+  ModelStore.instance.cleanupPartial();
   runApp(const SambungAyatApp());
 }
 
