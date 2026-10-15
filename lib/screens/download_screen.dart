@@ -53,7 +53,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
                   return const Padding(
                     padding: EdgeInsets.all(16),
                     child: Text(
-                      'Murottal Syaikh Abdurrahman as-Sudais diunduh per surat '
+                      'Murottal Syaikh Aiman Rusydi Suwaid diunduh per surat '
                       'dan disimpan di HP, sehingga menu Sambung Ayat bisa '
                       'memutar audio tanpa internet. Murajaah tidak memerlukan audio.',
                       style: TextStyle(color: Colors.black54),

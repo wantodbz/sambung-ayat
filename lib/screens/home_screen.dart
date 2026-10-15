@@ -52,7 +52,7 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             const Text(
-              'Latihan hafalan bersama murottal\nSyaikh Abdurrahman as-Sudais',
+              'Latihan hafalan bersama murottal\nSyaikh Aiman Rusydi Suwaid',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 15, color: Colors.black54),
             ),

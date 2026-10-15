@@ -6,14 +6,14 @@ import 'package:path_provider/path_provider.dart';
 
 import '../data/quran.dart';
 
-/// Penyimpanan & pengunduhan murottal Syaikh Abdurrahman as-Sudais per ayat.
+/// Penyimpanan & pengunduhan murottal Syaikh Aiman Rusydi Suwaid per ayat.
 /// Sumber: EveryAyah.com (64 kbps).
 class AudioStore {
   AudioStore._();
   static final AudioStore instance = AudioStore._();
 
   static const String baseUrl =
-      'https://everyayah.com/data/Abdurrahmaan_As-Sudais_64kbps/';
+      'https://everyayah.com/data/Ayman_Sowaid_64kbps/';
 
   Directory? _dir;
   Set<String>? _cache;
@@ -21,8 +21,13 @@ class AudioStore {
   Future<Directory> dir() async {
     if (_dir != null) return _dir!;
     final docs = await getApplicationDocumentsDirectory();
-    final d = Directory('${docs.path}/sudais');
+    final d = Directory('${docs.path}/ayman_suwaid');
     if (!await d.exists()) await d.create(recursive: true);
+    // Hapus audio murottal lama (as-Sudais, v1.0–1.1) agar memori HP lega.
+    final old = Directory('${docs.path}/sudais');
+    try {
+      if (await old.exists()) await old.delete(recursive: true);
+    } catch (_) {}
     _dir = d;
     return d;
   }

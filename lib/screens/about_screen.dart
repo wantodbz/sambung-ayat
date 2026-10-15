@@ -28,7 +28,7 @@ class AboutScreen extends StatelessWidget {
           const Text('Sambung Ayat',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-          const Text('Versi 1.1',
+          const Text('Versi 1.2',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.black54)),
           const SizedBox(height: 24),
@@ -49,7 +49,7 @@ class AboutScreen extends StatelessWidget {
               _Row(
                   icon: Icons.volume_up,
                   label: 'Murottal',
-                  value: 'Syaikh Abdurrahman as-Sudais (EveryAyah.com)'),
+                  value: 'Syaikh Aiman Rusydi Suwaid (EveryAyah.com)'),
               _Row(
                   icon: Icons.menu_book,
                   label: 'Teks Al-Qur\'an',

@@ -116,13 +116,13 @@ class SessionController extends ChangeNotifier {
         await _rec.stop();
         if (_needsBasmalah(index)) {
           phase = Phase.playing;
-          message = 'Syaikh as-Sudais membaca basmalah';
+          message = 'Syaikh Aiman Suwaid membaca basmalah';
           _notify();
           await _play(1, 1);
           if (_disposed) return;
         }
         phase = Phase.playing;
-        message = 'Syaikh as-Sudais membaca ayat ${a.ayah}';
+        message = 'Syaikh Aiman Suwaid membaca ayat ${a.ayah}';
         _notify();
         await _play(a.surah, a.ayah);
         if (_disposed) return;
@@ -136,7 +136,7 @@ class SessionController extends ChangeNotifier {
       // Giliran pengguna.
       if (isSambung && _needsBasmalah(index)) {
         phase = Phase.playing;
-        message = 'Syaikh as-Sudais membaca basmalah';
+        message = 'Syaikh Aiman Suwaid membaca basmalah';
         _notify();
         await _play(1, 1);
         if (_disposed) return;
