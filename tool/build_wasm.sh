@@ -6,10 +6,10 @@ S="$ROOT/packages/quran_whisper/src"
 O="$(mktemp -d)"
 FLAGS="-O3 -msimd128 -DNDEBUG -fno-finite-math-only"
 for f in ggml ggml-alloc ggml-backend ggml-quants; do
-  emcc $FLAGS -std=c11 -I"$S/whisper" -c "$S/whisper/$f.c" -o "$O/$f.o"
+  emcc $FLAGS -std=gnu11 -D_GNU_SOURCE -I"$S/whisper" -c "$S/whisper/$f.c" -o "$O/$f.o"
 done
-em++ $FLAGS -std=c++11 -I"$S/whisper" -c "$S/whisper/whisper.cpp" -o "$O/whisper.o"
-em++ $FLAGS -std=c++11 -I"$S" -I"$S/whisper" -c "$S/qw.cpp" -o "$O/qw.o"
+em++ $FLAGS -std=gnu++11 -D_GNU_SOURCE -I"$S/whisper" -c "$S/whisper/whisper.cpp" -o "$O/whisper.o"
+em++ $FLAGS -std=gnu++11 -D_GNU_SOURCE -I"$S" -I"$S/whisper" -c "$S/qw.cpp" -o "$O/qw.o"
 em++ $FLAGS "$O"/*.o -o "$ROOT/web/whisper/qw.js" \
   -sMODULARIZE=1 -sEXPORT_NAME=createQW -sENVIRONMENT=worker \
   -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=67108864 -sMAXIMUM_MEMORY=2147483648 \
