@@ -1,0 +1,20 @@
+# Sambung Ayat
+
+Aplikasi Android untuk latihan hafalan Al-Qur'an dengan murottal Syaikh Abdurrahman as-Sudais.
+
+- **Sambung Ayat**: HP membaca ayat ke-1, Anda membaca ayat ke-2, HP ayat ke-3, dan seterusnya. Bacaan Anda dicek; bila salah, Anda diminta mengulang.
+- **Murajaah**: Anda membaca sendiri seluruh ayat; aplikasi hanya mengecek.
+- Cakupan: per surat atau per juz. Audio diunduh per surat sesuai kebutuhan.
+
+Pembuat: **Abu Syafiq**, Perumahan Ar-Raihaan Blok B7.
+
+## Mengunduh APK
+
+Buka tab **Releases** di repo ini, unduh `SambungAyat.apk` versi terbaru, lalu pasang di HP Android (izinkan "instal dari sumber tidak dikenal").
+
+## Catatan
+
+- Pengecekan memeriksa lafaz/hafalan, **bukan** tajwid atau makhraj.
+- Pengecekan memakai pengenal suara Google sehingga membutuhkan internet.
+- Teks Al-Qur'an: Rasm Utsmani dari QuranEnc.com melalui paket `quran-json` (CC BY 4.0). Audio: EveryAyah.com.
+- APK dibangun otomatis oleh GitHub Actions (`.github/workflows/build.yml`).

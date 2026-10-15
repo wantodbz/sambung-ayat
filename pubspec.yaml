@@ -1,0 +1,21 @@
+name: sambung_ayat
+description: Aplikasi Sambung Ayat dan Murajaah Al-Qur'an dengan murottal Syaikh Abdurrahman as-Sudais.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  speech_to_text: ^7.0.0
+  just_audio: ^0.9.42
+  http: ^1.2.2
+  path_provider: ^2.1.4
+  shared_preferences: ^2.3.2
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/quran.json
