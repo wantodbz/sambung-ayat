@@ -1,0 +1,12 @@
+name: Cek Audio Murottal
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Periksa kelengkapan audio
+        run: python3 tool/check_audio.py

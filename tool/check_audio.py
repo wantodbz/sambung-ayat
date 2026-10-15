@@ -32,8 +32,12 @@ with ThreadPoolExecutor(32) as ex:
 
 missing = [n for n, ok in results if ok is False]
 unknown = [n for n, ok in results if ok is None]
-print(f"Total ayat: {len(names)} | tersedia: {len(names) - len(missing) - len(unknown)} "
+summary = (f"Total ayat: {len(names)} | tersedia: {len(names) - len(missing) - len(unknown)} "
       f"| tidak ada: {len(missing)} | tidak pasti: {len(unknown)}")
+print(summary)
+print("::notice title=Audio::" + summary)
+if missing:
+    print("::warning title=Tidak ada::" + " ".join(missing[:200]))
 if missing:
     print("Tidak ada:", " ".join(missing[:300]))
 if unknown:
