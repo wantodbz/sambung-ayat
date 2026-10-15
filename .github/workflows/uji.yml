@@ -1,0 +1,27 @@
+name: Uji Murajaah
+
+# Uji ujung-ke-ujung: murottal -> potong di jeda -> model Qur'an -> koreksi.
+on:
+  workflow_dispatch:
+
+jobs:
+  uji:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Siapkan
+        run: |
+          sudo apt-get install -y -qq ffmpeg > /dev/null
+          git clone -q --depth 1 --branch v1.5.4 https://github.com/ggerganov/whisper.cpp wcpp
+          make -C wcpp -j4 main > /dev/null
+          for m in tiny base; do
+            curl -sfL -o ggml-quran-$m.bin https://github.com/wantodbz/sambung-ayat/releases/download/model-v1/ggml-quran-$m.bin
+          done
+      - name: Uji Al-Mulk dan Al-Ikhlas
+        run: |
+          mkdir -p kerja && cd kerja
+          for s in 67 112; do
+            for m in tiny base; do
+              python3 ../tool/e2e_test.py ../ggml-quran-$m.bin ../wcpp/main $s
+            done
+          done

@@ -28,7 +28,7 @@ class AboutScreen extends StatelessWidget {
           const Text('Sambung Ayat',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-          const Text('Versi 1.5',
+          const Text('Versi 2.0 (uji)',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.black54)),
           const SizedBox(height: 24),

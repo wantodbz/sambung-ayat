@@ -1,0 +1,19 @@
+name: quran_whisper
+description: Pengenal bacaan Al-Qur'an offline berbasis whisper.cpp untuk aplikasi Sambung Ayat.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.1.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true

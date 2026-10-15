@@ -81,6 +81,8 @@ else:
     new_sign = "signingConfigs.tetap"
 with open(path, encoding="utf-8") as f:
     gradle = f.read()
+# minSdk 24 (perekam audio & pengenal bacaan offline)
+gradle = re.sub(r"minSdk(Version)?\s*=?\s*flutter\.minSdkVersion", lambda m: ("minSdk = 24" if path.endswith(".kts") else "minSdkVersion 24"), gradle)
 if "tetap" not in gradle:
     gradle = gradle.replace("android {\n", block, 1)
     if old_sign not in gradle:

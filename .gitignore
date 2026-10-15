@@ -7,4 +7,5 @@ build/
 *.iml
 .metadata
 pubspec.lock
-android/
+/android/
+packages/quran_whisper/src/whisper/

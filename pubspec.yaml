@@ -1,7 +1,7 @@
 name: sambung_ayat
 description: Aplikasi Sambung Ayat dan Murajaah Al-Qur'an dengan murottal Syaikh Aiman Rusydi Suwaid.
 publish_to: 'none'
-version: 1.5.0+6
+version: 2.0.0+7
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -15,6 +15,9 @@ dependencies:
   path_provider: ^2.1.4
   shared_preferences: ^2.3.2
   crypto: ^3.0.3
+  record: ^5.1.2
+  quran_whisper:
+    path: packages/quran_whisper
 
 flutter:
   uses-material-design: true

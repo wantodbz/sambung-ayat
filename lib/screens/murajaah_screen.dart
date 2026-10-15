@@ -1,154 +1,254 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:quran_whisper/quran_whisper.dart';
+import 'package:record/record.dart';
 
 import '../data/quran.dart';
 import '../main.dart';
 import '../services/matcher.dart';
+import '../services/model_store.dart';
 import '../services/parent_report.dart';
-import '../services/recognizer.dart';
+import '../services/settings.dart';
+import '../services/wav.dart';
 
-enum MurajaahPhase { preparing, reading, checking, done, error }
+enum MurajaahPhase {
+  preparing,
+  needModel,
+  downloading,
+  reading,
+  checking,
+  done,
+  error
+}
 
-/// Murajaah: anak membaca seluruh rangkaian ayat tanpa dicek per ayat,
-/// lalu koreksi ditampilkan di akhir.
+/// Murajaah: anak membaca seluruh rangkaian ayat. Suara direkam utuh tanpa
+/// putus, lalu setelah "Selesai" diproses di HP (tanpa internet) oleh model
+/// Whisper khusus bacaan Al-Qur'an, dan dikoreksi.
 class MurajaahController extends ChangeNotifier {
   MurajaahController({
     required this.ayahs,
     required this.threshold,
     required this.title,
-  }) {
-    _totalLen = ayahs.fold(
-        0, (s, a) => s + ArabicMatcher.normalize(a.text).length);
-  }
+  });
 
   final List<Ayah> ayahs;
   final double threshold;
   final String title;
 
-  final Recognizer _rec = Recognizer.instance;
+  final AudioRecorder _recorder = AudioRecorder();
+  StreamSubscription<Amplitude>? _ampSub;
+  StreamSubscription<TranscribeEvent>? _trSub;
 
   MurajaahPhase phase = MurajaahPhase.preparing;
   String message = 'Menyiapkan…';
   bool micActive = false;
+  double level = 0; // 0..1, tinggi suara saat merekam
   List<AyahVerdict> verdicts = [];
   List<int> recordedSurahs = [];
   Duration elapsed = Duration.zero;
 
-  late final int _totalLen;
-  String _finalText = '';
-  String _partialText = '';
-  String _partialRaw = '';
-  String _rawText = '';
-  int _session = -1;
+  // Proses pengunduhan model / koreksi.
+  double progress = 0;
+  String progressLabel = '';
+  String heardTail = '';
+
+  QuranModel model = Settings.instance.model;
   Timer? _clock;
   DateTime? _startedAt;
+  String? _wavPath;
   bool _disposed = false;
-
-  String get heardSoFar => _finalText + _partialText;
-
-  /// Perkiraan kemajuan bacaan (berdasarkan panjang teks terdengar).
-  double get progress =>
-      _totalLen == 0 ? 0 : math.min(1, heardSoFar.length / _totalLen);
+  bool _cancelDownload = false;
 
   List<AyahVerdict> get mistakes =>
       verdicts.where((v) => v.verdict != Verdict.correct).toList();
 
   Future<void> start() async {
-    final ok = await _rec.init();
-    if (!ok) {
-      _fail('Pengenal suara tidak tersedia di HP ini. Pastikan aplikasi '
-          'Google terpasang dan izin mikrofon diberikan.');
+    model = Settings.instance.model;
+    if (!await ModelStore.instance.has(model)) {
+      phase = MurajaahPhase.needModel;
+      message = 'Murajaah membutuhkan model pengenal bacaan Al-Qur\'an. '
+          'Unduh sekali saja, setelah itu bisa dipakai tanpa internet.';
+      _notify();
       return;
     }
-    _rec.onResult = _onResult;
-    _rec.onFatalError = _fail;
-    _rec.onListeningChanged = (l) {
-      micActive = l;
-      _notify();
-    };
-    _begin();
+    await _beginRecording();
   }
 
-  void _begin() {
+  /// Unduh model pilihan [m].
+  Future<void> downloadModel(QuranModel m) async {
+    model = m;
+    await Settings.instance.setModel(m);
+    phase = MurajaahPhase.downloading;
+    message = 'Mengunduh model ${m.label}…';
+    progress = 0;
+    progressLabel = '';
+    _cancelDownload = false;
+    _notify();
+    try {
+      await ModelStore.instance.download(
+        m,
+        isCancelled: () => _cancelDownload || _disposed,
+        onProgress: (r, t) {
+          progress = t > 0 ? r / t : 0;
+          progressLabel = t > 0
+              ? '${(r / 1048576).toStringAsFixed(1)} / ${(t / 1048576).toStringAsFixed(1)} MB'
+              : '${(r / 1048576).toStringAsFixed(1)} MB';
+          _notify();
+        },
+      );
+      if (_disposed || _cancelDownload) return;
+      if (!await ModelStore.instance.has(m)) {
+        throw Exception('Berkas model tidak lengkap.');
+      }
+      await _beginRecording();
+    } catch (e) {
+      _fail('Model gagal diunduh. Periksa koneksi internet lalu coba lagi.\n($e)');
+    }
+  }
+
+  void cancelDownload() {
+    _cancelDownload = true;
+    phase = MurajaahPhase.needModel;
+    message = 'Unduhan dibatalkan.';
+    _notify();
+  }
+
+  Future<void> _beginRecording() async {
+    if (!await _recorder.hasPermission()) {
+      _fail('Izin mikrofon belum diberikan. Aktifkan di Pengaturan HP.');
+      return;
+    }
+    final dir = await getTemporaryDirectory();
+    _wavPath = '${dir.path}/murajaah.wav';
+    try {
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: _wavPath!,
+      );
+    } catch (e) {
+      _fail('Perekaman gagal dimulai: $e');
+      return;
+    }
+    micActive = true;
     phase = MurajaahPhase.reading;
-    message = 'Silakan mulai membaca sampai selesai, lalu ketuk tombol "Selesai & koreksi".';
-    _startedAt ??= DateTime.now();
-    _clock ??= Timer.periodic(const Duration(seconds: 1), (_) {
+    message = 'Silakan mulai membaca sampai selesai, '
+        'lalu ketuk tombol "Selesai & koreksi".';
+    _startedAt = DateTime.now();
+    elapsed = Duration.zero;
+    _clock?.cancel();
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
       elapsed = DateTime.now().difference(_startedAt!);
       _notify();
     });
+    _ampSub?.cancel();
+    _ampSub = _recorder
+        .onAmplitudeChanged(const Duration(milliseconds: 150))
+        .listen((a) {
+      // dBFS: -60 (hening) .. 0 (keras)
+      level = ((a.current + 50) / 50).clamp(0.0, 1.0);
+      _notify();
+    });
     _notify();
-    _rec.start();
   }
 
   void _fail(String msg) {
     phase = MurajaahPhase.error;
     message = msg;
-    _rec.stop();
+    micActive = false;
+    _clock?.cancel();
     _notify();
   }
 
   Future<void> retry() async {
-    if (phase == MurajaahPhase.error) _begin();
+    if (phase != MurajaahPhase.error) return;
+    verdicts = [];
+    await start();
   }
 
-  void _onResult(String text, bool isFinal, int session) {
-    if (_disposed || phase != MurajaahPhase.reading) return;
-    // Sesi dengar baru dimulai tanpa hasil final dari sesi sebelumnya:
-    // simpan bacaan sementara sesi lama agar tidak hilang.
-    // Hasil terlambat dari sesi lama (sudah disimpan) diabaikan.
-    if (session < _session) return;
-    if (session != _session) {
-      _commitPartial();
-      _session = session;
-    }
-    final norm = ArabicMatcher.normalize(text);
-    if (isFinal) {
-      // Sebagian HP mengirim hasil final kosong/terpotong setelah jeda;
-      // dalam hal itu pakai hasil sementara yang lebih lengkap.
-      final useFinal = norm.length >= _partialText.length * 0.6;
-      _append(useFinal ? norm : _partialText, useFinal ? text : _partialRaw);
-      _partialText = '';
-      _partialRaw = '';
-    } else {
-      _partialText = norm;
-      _partialRaw = text;
-    }
-    _notify();
-  }
-
-  void _commitPartial() {
-    if (_partialText.isNotEmpty) _append(_partialText, _partialRaw);
-    _partialText = '';
-    _partialRaw = '';
-  }
-
-  void _append(String norm, String raw) {
-    _finalText += norm;
-    if (raw.isNotEmpty) _rawText = '$_rawText $raw'.trim();
-  }
-
-  /// Potongan terakhir yang terdengar (untuk ditampilkan).
-  String get heardTail {
-    final raw = '$_rawText $_partialRaw'.trim();
-    return raw.length > 90 ? '…${raw.substring(raw.length - 90)}' : raw;
-  }
-
-  /// Hentikan bacaan dan lakukan koreksi.
+  /// Hentikan rekaman, proses dengan model, lalu koreksi.
   Future<void> finish() async {
     if (phase != MurajaahPhase.reading) return;
-    phase = MurajaahPhase.checking;
-    message = 'Memeriksa bacaan…';
     _clock?.cancel();
+    await _ampSub?.cancel();
+    _ampSub = null;
+    micActive = false;
+    level = 0;
+    phase = MurajaahPhase.checking;
+    message = 'Memproses bacaan…';
+    progress = 0;
+    progressLabel = 'Menyiapkan rekaman';
     _notify();
-    _commitPartial();
-    final heard = _finalText;
-    await _rec.stop();
-    // Beri kesempatan UI menampilkan status sebelum perhitungan.
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final path = await _recorder.stop() ?? _wavPath;
+    if (path == null) {
+      _fail('Rekaman tidak ditemukan.');
+      return;
+    }
+    final List<Float32List> chunks;
+    try {
+      final pcm = await readWavMono(path);
+      chunks = splitOnPauses(pcm);
+    } catch (e) {
+      _fail('Rekaman tidak bisa dibaca: $e');
+      return;
+    }
+    if (chunks.isEmpty) {
+      _fail('Tidak ada suara bacaan yang terekam. Pastikan mikrofon tidak '
+          'tertutup lalu ulangi.');
+      return;
+    }
+
+    final modelPath = await ModelStore.instance.path(model);
+    final threads = math.min(4, math.max(2, Platform.numberOfProcessors));
+    final texts = <String>[];
+    final started = DateTime.now();
+    final done = Completer<String?>();
+    progressLabel = 'Bagian 0 dari ${chunks.length}';
+    _notify();
+    _trSub = QuranWhisper.transcribe(
+      modelPath: modelPath,
+      chunks: chunks,
+      threads: threads,
+    ).listen((ev) {
+      if (ev.error != null) {
+        if (!done.isCompleted) done.complete(ev.error);
+        return;
+      }
+      if (ev.finished) {
+        if (!done.isCompleted) done.complete(null);
+        return;
+      }
+      texts.add(ev.text);
+      progress = ev.done / ev.total;
+      final spent = DateTime.now().difference(started).inSeconds;
+      final left = (spent / ev.done * (ev.total - ev.done)).round();
+      progressLabel = 'Bagian ${ev.done} dari ${ev.total}'
+          '${ev.done < ev.total ? ' • sisa ±${_fmtSec(left)}' : ''}';
+      final t = texts.join(' ').trim();
+      heardTail = t.length > 90 ? '…${t.substring(t.length - 90)}' : t;
+      _notify();
+    }, onDone: () {
+      if (!done.isCompleted) done.complete(null);
+    });
+    final err = await done.future;
+    _trSub = null;
+    if (_disposed) return;
+    if (err != null) {
+      _fail('Pemrosesan gagal: $err');
+      return;
+    }
+
+    final heard = ArabicMatcher.normalize(texts.join(' '));
     verdicts = ArabicMatcher.review(ayahs, heard, threshold);
     final wrong = {
       for (final v in verdicts)
@@ -170,22 +270,28 @@ class MurajaahController extends ChangeNotifier {
       HapticFeedback.heavyImpact();
     }
     _notify();
+    try {
+      await File(path).delete();
+    } catch (_) {}
   }
+
+  static String _fmtSec(int s) =>
+      s >= 60 ? '${s ~/ 60} mnt ${s % 60} dtk' : '$s dtk';
 
   /// Ulangi dari awal.
   Future<void> restart() async {
-    await _rec.stop();
-    _finalText = '';
-    _partialText = '';
-    _partialRaw = '';
-    _rawText = '';
+    await _trSub?.cancel();
+    _trSub = null;
+    await _ampSub?.cancel();
+    _ampSub = null;
+    try {
+      if (await _recorder.isRecording()) await _recorder.stop();
+    } catch (_) {}
     verdicts = [];
     recordedSurahs = [];
-    _startedAt = DateTime.now();
-    elapsed = Duration.zero;
-    _clock?.cancel();
-    _clock = null;
-    _begin();
+    heardTail = '';
+    progress = 0;
+    await _beginRecording();
   }
 
   void _notify() {
@@ -195,11 +301,11 @@ class MurajaahController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _cancelDownload = true;
     _clock?.cancel();
-    _rec.onResult = null;
-    _rec.onFatalError = null;
-    _rec.onListeningChanged = null;
-    _rec.stop();
+    _ampSub?.cancel();
+    _trSub?.cancel();
+    _recorder.stop().catchError((_) => null).whenComplete(_recorder.dispose);
     super.dispose();
   }
 }
@@ -250,9 +356,20 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
     final q = QuranData.instance;
     final first = c.ayahs.first;
     final last = c.ayahs.last;
-    final reading = c.phase == MurajaahPhase.reading;
-    final error = c.phase == MurajaahPhase.error;
+    final ph = c.phase;
+    final reading = ph == MurajaahPhase.reading;
+    final checking = ph == MurajaahPhase.checking;
+    final downloading = ph == MurajaahPhase.downloading;
+    final error = ph == MurajaahPhase.error;
     final color = error ? AppColors.red : AppColors.green;
+    final IconData icon = switch (ph) {
+      MurajaahPhase.error => Icons.error_outline_rounded,
+      MurajaahPhase.needModel || MurajaahPhase.downloading =>
+        Icons.download_rounded,
+      MurajaahPhase.reading => Icons.mic_rounded,
+      _ => Icons.hourglass_top_rounded,
+    };
+    final ring = reading ? 6.0 + c.level * 10 : 3.0;
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -267,66 +384,65 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
           ),
           Expanded(
             child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    width: c.micActive ? 172 : 152,
-                    height: c.micActive ? 172 : 152,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: color.withValues(alpha: 0.10),
-                      border: Border.all(
-                          color: c.micActive ? AppColors.orange : color,
-                          width: c.micActive ? 6 : 3),
-                    ),
-                    child: c.phase == MurajaahPhase.checking
-                        ? const Padding(
-                            padding: EdgeInsets.all(48),
-                            child: CircularProgressIndicator(strokeWidth: 6),
-                          )
-                        : Icon(
-                            error
-                                ? Icons.error_outline_rounded
-                                : (c.micActive
-                                    ? Icons.mic_rounded
-                                    : Icons.mic_none_rounded),
-                            size: 80,
-                            color: color),
-                  ),
-                  const SizedBox(height: 24),
-                  if (reading)
-                    Text(_fmt(c.elapsed),
-                        style: const TextStyle(
-                            fontSize: 34,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.greenDark,
-                            fontFeatures: [FontFeature.tabularFigures()])),
-                  const SizedBox(height: 8),
-                  Text(
-                    c.message,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                        color: error ? AppColors.red : AppColors.greenDark),
-                  ),
-                  if (reading) ...[
-                    const SizedBox(height: 22),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: LinearProgressIndicator(
-                        value: c.progress,
-                        minHeight: 10,
-                        color: AppColors.orange,
-                        backgroundColor: AppColors.green.withValues(alpha: 0.12),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      width: 172,
+                      height: 172,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: color.withValues(alpha: 0.10),
+                        border: Border.all(
+                            color: reading ? AppColors.orange : color,
+                            width: ring),
                       ),
+                      child: checking
+                          ? const Padding(
+                              padding: EdgeInsets.all(52),
+                              child: CircularProgressIndicator(strokeWidth: 6),
+                            )
+                          : Icon(icon, size: 80, color: color),
                     ),
-                    const SizedBox(height: 6),
-                    Text('Perkiraan kemajuan ${(c.progress * 100).round()}%',
-                        style: const TextStyle(color: Colors.black45)),
-                    if (c.heardTail.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    if (reading) ...[
+                      Text(_fmt(c.elapsed),
+                          style: const TextStyle(
+                              fontSize: 34,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.greenDark,
+                              fontFeatures: [FontFeature.tabularFigures()])),
+                      const Text('Sedang merekam',
+                          style: TextStyle(color: AppColors.orangeDark)),
+                      const SizedBox(height: 8),
+                    ],
+                    Text(
+                      c.message,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: error ? AppColors.red : AppColors.greenDark),
+                    ),
+                    if (checking || downloading) ...[
+                      const SizedBox(height: 22),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: c.progress > 0 ? c.progress : null,
+                          minHeight: 10,
+                          color: AppColors.orange,
+                          backgroundColor:
+                              AppColors.green.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(c.progressLabel,
+                          style: const TextStyle(color: Colors.black45)),
+                    ],
+                    if (checking && c.heardTail.isNotEmpty) ...[
                       const SizedBox(height: 14),
                       Text(
                         c.heardTail,
@@ -338,8 +454,34 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
                             fontSize: 17, color: Colors.black38),
                       ),
                     ],
+                    if (ph == MurajaahPhase.needModel) ...[
+                      const SizedBox(height: 20),
+                      for (final m in QuranModel.values)
+                        Card(
+                          elevation: 0,
+                          color: Colors.white,
+                          margin: const EdgeInsets.only(bottom: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: BorderSide(
+                                color: m == QuranModel.akurat
+                                    ? AppColors.orange
+                                    : Colors.black12),
+                          ),
+                          child: ListTile(
+                            title: Text('Model ${m.label}'
+                                '${m == QuranModel.akurat ? ' (disarankan)' : ''}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700)),
+                            subtitle: Text(m.hint),
+                            trailing: const Icon(Icons.download,
+                                color: AppColors.green),
+                            onTap: () => c.downloadModel(m),
+                          ),
+                        ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -348,6 +490,11 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
               icon: const Icon(Icons.refresh),
               label: const Text('Coba lagi'),
               onPressed: c.retry,
+            )
+          else if (downloading)
+            OutlinedButton(
+              onPressed: c.cancelDownload,
+              child: const Text('Batalkan unduhan'),
             )
           else if (reading) ...[
             FilledButton.icon(

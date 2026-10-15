@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'model_store.dart';
+
 /// Tingkat ketelitian pengecekan bacaan.
 enum Strictness { longgar, normal, ketat }
 
@@ -30,7 +32,9 @@ class Settings {
   static final Settings instance = Settings._();
 
   static const _kStrict = 'strictness';
+  static const _kModel = 'quran_model';
   Strictness strictness = Strictness.normal;
+  QuranModel model = QuranModel.akurat;
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
@@ -38,6 +42,16 @@ class Settings {
     if (i != null && i >= 0 && i < Strictness.values.length) {
       strictness = Strictness.values[i];
     }
+    final m = p.getInt(_kModel);
+    if (m != null && m >= 0 && m < QuranModel.values.length) {
+      model = QuranModel.values[m];
+    }
+  }
+
+  Future<void> setModel(QuranModel m) async {
+    model = m;
+    final p = await SharedPreferences.getInstance();
+    await p.setInt(_kModel, m.index);
   }
 
   Future<void> setStrictness(Strictness s) async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../main.dart';
+import '../services/model_store.dart';
 import '../services/settings.dart';
 import 'about_screen.dart';
 import 'download_screen.dart';
@@ -116,11 +117,12 @@ class HomeScreen extends StatelessWidget {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setState) {
           final cur = Settings.instance.strictness;
           return SafeArea(
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -140,6 +142,27 @@ class HomeScreen extends StatelessWidget {
                       onChanged: (v) async {
                         if (v == null) return;
                         await Settings.instance.setStrictness(v);
+                        setState(() {});
+                      },
+                    ),
+                  const SizedBox(height: 12),
+                  const Text('Model koreksi Murajaah',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  const Text(
+                      'Bila model belum ada, akan diunduh saat Murajaah dibuka.',
+                      style: TextStyle(color: Colors.black54)),
+                  for (final m in QuranModel.values)
+                    RadioListTile<QuranModel>(
+                      value: m,
+                      groupValue: Settings.instance.model,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(m.label),
+                      subtitle: Text(m.hint),
+                      onChanged: (v) async {
+                        if (v == null) return;
+                        await Settings.instance.setModel(v);
                         setState(() {});
                       },
                     ),

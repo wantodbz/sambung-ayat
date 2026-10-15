@@ -27,6 +27,7 @@ jobs:
 
       - name: Siapkan proyek Android
         run: |
+          bash tool/fetch_whisper.sh
           flutter create --project-name sambung_ayat --org com.abusyafiq --platforms android .
           rm -rf test
           python3 tool/patch_android.py
@@ -48,7 +49,7 @@ jobs:
       - name: Terbitkan rilis
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.${{ github.run_number }}
-          name: Sambung Ayat v1.5.${{ github.run_number }}
+          tag_name: v2.0.${{ github.run_number }}
+          name: Sambung Ayat v2.0.${{ github.run_number }}
           body: APK siap dipasang. Unduh berkas SambungAyat.apk di bawah ini.
           files: SambungAyat.apk
