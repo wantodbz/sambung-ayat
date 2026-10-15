@@ -9,3 +9,4 @@ build/
 pubspec.lock
 /android/
 packages/quran_whisper/src/whisper/
+/ios/

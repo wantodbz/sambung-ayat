@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
 
 import 'data/quran.dart';
@@ -14,10 +17,26 @@ Future<void> main() async {
     Settings.instance.load(),
     ParentReport.instance.load(),
   ]);
+  if (Platform.isIOS) await _configureIosAudio();
   // Bersihkan sisa rekaman/unduhan yang tertinggal (mis. aplikasi ditutup paksa).
   MurajaahController.deleteRecording();
   ModelStore.instance.cleanupPartial();
   runApp(const SambungAyatApp());
+}
+
+/// iPhone: putar murottal lewat speaker (bukan speaker telepon) walaupun
+/// mikrofon sedang/baru saja dipakai.
+Future<void> _configureIosAudio() async {
+  try {
+    final session = await AudioSession.instance;
+    await session.configure(AudioSessionConfiguration(
+      avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+      avAudioSessionCategoryOptions:
+          AVAudioSessionCategoryOptions.defaultToSpeaker |
+              AVAudioSessionCategoryOptions.allowBluetooth,
+      avAudioSessionMode: AVAudioSessionMode.defaultMode,
+    ));
+  } catch (_) {}
 }
 
 class AppColors {

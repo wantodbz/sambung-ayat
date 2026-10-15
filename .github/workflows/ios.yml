@@ -1,0 +1,69 @@
+name: Build iPhone
+
+# Membangun IPA tanpa tanda tangan. IPA ini dipasang ke iPhone lewat
+# Sideloadly/AltStore memakai Apple ID gratis (ditandatangani di sana).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.29.3'
+          cache: true
+
+      - name: Siapkan proyek iOS
+        run: |
+          bash tool/fetch_whisper.sh
+          flutter create --project-name sambung_ayat --org com.abusyafiq --platforms ios .
+          rm -rf test
+          pip install pillow
+          python tool/patch_ios.py
+
+      - name: Ambil pustaka
+        run: flutter pub get
+
+      - name: Bangun aplikasi iPhone
+        run: |
+          set +e
+          xcodebuild -version
+          flutter build ios --release --no-codesign > build.log 2>&1
+          code=$?
+          tail -80 build.log
+          if [ $code -ne 0 ]; then
+            msg=$(grep -E "error|Error|ERROR|failed|Exception|note:" build.log | grep -v "^\s*$" | head -40 | cut -c1-300 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=Build iPhone gagal::$msg"
+          fi
+          exit $code
+
+      - name: Kemas IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry SambungAyat.ipa Payload
+          ls -la SambungAyat.ipa
+
+      - name: Terbitkan rilis iPhone
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-v2.1.${{ github.run_number }}
+          name: Sambung Ayat iPhone v2.1.${{ github.run_number }}
+          prerelease: true
+          body: |
+            IPA tanpa tanda tangan untuk iPhone. Pasang lewat Sideloadly atau
+            AltStore dengan Apple ID gratis (perlu diperbarui tiap 7 hari).
+          files: SambungAyat.ipa

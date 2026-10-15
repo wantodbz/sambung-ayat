@@ -105,7 +105,9 @@ class QuranWhisper {
     try {
       final lib = Platform.isAndroid
           ? DynamicLibrary.open('libquran_whisper.so')
-          : DynamicLibrary.process();
+          : (Platform.isIOS || Platform.isMacOS)
+              ? DynamicLibrary.open('quran_whisper.framework/quran_whisper')
+              : DynamicLibrary.process();
       final init = lib.lookupFunction<_InitC, _InitD>('qw_init');
       final tr = lib.lookupFunction<_TrC, _TrD>('qw_transcribe');
       final free = lib.lookupFunction<_FreeC, _FreeD>('qw_free');
