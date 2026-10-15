@@ -1,0 +1,72 @@
+name: Siapkan Model Qur'an
+
+# Mengonversi model Whisper khusus bacaan Al-Qur'an (tarteel-ai) ke format
+# whisper.cpp, mengujinya dengan murottal, lalu menerbitkannya sebagai rilis
+# "model-v1" agar bisa diunduh aplikasi.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Pasang pustaka Python
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install "transformers==4.44.2" huggingface_hub numpy
+
+      - name: Ambil whisper.cpp dan openai/whisper
+        run: |
+          git clone --depth 1 --branch v1.5.4 https://github.com/ggerganov/whisper.cpp wcpp
+          git clone --depth 1 https://github.com/openai/whisper owhisper
+          sed -i 's/hparams\["max_length"\]/hparams.get("max_length", hparams.get("max_target_positions", 448))/' wcpp/models/convert-h5-to-ggml.py
+          make -C wcpp -j4 main quantize
+
+      - name: Konversi dan kuantisasi
+        run: |
+          for m in tiny base; do
+            python -c "from huggingface_hub import snapshot_download; snapshot_download('tarteel-ai/whisper-$m-ar-quran', local_dir='hf-$m', allow_patterns=['*.json','*.txt','pytorch_model.bin'])"
+            mkdir -p out-$m
+            python wcpp/models/convert-h5-to-ggml.py hf-$m owhisper out-$m
+            ./wcpp/quantize out-$m/ggml-model.bin ggml-quran-$m.bin q8_0
+          done
+          ls -la *.bin
+
+      - name: Uji dengan murottal (Al-Mulk 1-5)
+        run: |
+          sudo apt-get install -y -qq ffmpeg > /dev/null
+          list=""
+          for a in 001 002 003 004 005; do
+            curl -sfL -o 067$a.mp3 https://everyayah.com/data/Ayman_Sowaid_64kbps/067$a.mp3
+            list="$list|067$a.mp3"
+          done
+          ffmpeg -loglevel error -i "concat:${list#|}" -ar 16000 -ac 1 -c:a pcm_s16le test.wav
+          dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 test.wav)
+          for m in tiny base; do
+            s=$(date +%s.%N)
+            ./wcpp/main -m ggml-quran-$m.bin -l ar -f test.wav -nt -t 4 > out-$m.txt 2> log-$m.txt || (tail -20 log-$m.txt; exit 1)
+            e=$(date +%s.%N)
+            t=$(python -c "print(round($e-$s,1))")
+            echo "::notice title=Model $m (audio ${dur}s, proses ${t}s)::$(tr '\n' ' ' < out-$m.txt | cut -c1-900)"
+          done
+
+      - name: Terbitkan model
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: model-v1
+          name: Model Qur'an v1
+          body: |
+            Model Whisper khusus bacaan Al-Qur'an (tarteel-ai, lisensi Apache-2.0),
+            dikonversi ke format whisper.cpp (q8_0). Diunduh otomatis oleh aplikasi.
+          files: |
+            ggml-quran-tiny.bin
+            ggml-quran-base.bin
