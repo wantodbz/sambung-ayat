@@ -45,8 +45,48 @@ for d in os.listdir(icons):
         shutil.copy(src, os.path.join(dst_dir, "ic_launcher.png"))
 
 # Kunci tanda tangan tetap agar pembaruan APK bisa dipasang menimpa versi lama.
-home_android = os.path.join(os.path.expanduser("~"), ".android")
-os.makedirs(home_android, exist_ok=True)
-shutil.copy(os.path.join(ROOT, "tool", "signing", "debug.keystore"),
-            os.path.join(home_android, "debug.keystore"))
+keystore = os.path.join(ROOT, "tool", "signing", "debug.keystore").replace("\\", "/")
+app = os.path.join(ROOT, "android", "app")
+kts = os.path.join(app, "build.gradle.kts")
+groovy = os.path.join(app, "build.gradle")
+if os.path.isfile(kts):
+    path = kts
+    block = (
+        'android {\n'
+        '    signingConfigs {\n'
+        '        create("tetap") {\n'
+        f'            storeFile = file("{keystore}")\n'
+        '            storePassword = "android"\n'
+        '            keyAlias = "androiddebugkey"\n'
+        '            keyPassword = "android"\n'
+        '        }\n'
+        '    }\n'
+    )
+    old_sign = 'signingConfigs.getByName("debug")'
+    new_sign = 'signingConfigs.getByName("tetap")'
+else:
+    path = groovy
+    block = (
+        'android {\n'
+        '    signingConfigs {\n'
+        '        tetap {\n'
+        f'            storeFile file("{keystore}")\n'
+        '            storePassword "android"\n'
+        '            keyAlias "androiddebugkey"\n'
+        '            keyPassword "android"\n'
+        '        }\n'
+        '    }\n'
+    )
+    old_sign = "signingConfigs.debug"
+    new_sign = "signingConfigs.tetap"
+with open(path, encoding="utf-8") as f:
+    gradle = f.read()
+if "tetap" not in gradle:
+    gradle = gradle.replace("android {\n", block, 1)
+    if old_sign not in gradle:
+        raise SystemExit("Pengaturan tanda tangan rilis tidak ditemukan di " + path)
+    gradle = gradle.replace(old_sign, new_sign)
+with open(path, "w", encoding="utf-8") as f:
+    f.write(gradle)
+print(gradle)
 print("Patch Android selesai.")
