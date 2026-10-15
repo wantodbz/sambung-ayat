@@ -22,7 +22,6 @@ class MurajaahController extends ChangeNotifier {
   }) {
     _totalLen = ayahs.fold(
         0, (s, a) => s + ArabicMatcher.normalize(a.text).length);
-    _lastNorm = ArabicMatcher.candidates(ayahs.last).first;
   }
 
   final List<Ayah> ayahs;
@@ -39,7 +38,6 @@ class MurajaahController extends ChangeNotifier {
   Duration elapsed = Duration.zero;
 
   late final int _totalLen;
-  late final String _lastNorm;
   String _finalText = '';
   String _partialText = '';
   String _partialRaw = '';
@@ -76,7 +74,7 @@ class MurajaahController extends ChangeNotifier {
 
   void _begin() {
     phase = MurajaahPhase.reading;
-    message = 'Silakan mulai membaca. Ketuk "Selesai & koreksi" setelah ayat terakhir.';
+    message = 'Silakan mulai membaca sampai selesai, lalu ketuk tombol "Selesai & koreksi".';
     _startedAt ??= DateTime.now();
     _clock ??= Timer.periodic(const Duration(seconds: 1), (_) {
       elapsed = DateTime.now().difference(_startedAt!);
@@ -115,7 +113,6 @@ class MurajaahController extends ChangeNotifier {
       _append(useFinal ? norm : _partialText, useFinal ? text : _partialRaw);
       _partialText = '';
       _partialRaw = '';
-      _maybeAutoFinish();
     } else {
       _partialText = norm;
       _partialRaw = text;
@@ -138,16 +135,6 @@ class MurajaahController extends ChangeNotifier {
   String get heardTail {
     final raw = '$_rawText $_partialRaw'.trim();
     return raw.length > 90 ? '…${raw.substring(raw.length - 90)}' : raw;
-  }
-
-  /// Selesai otomatis bila ayat terakhir sudah terdengar di ujung bacaan.
-  void _maybeAutoFinish() {
-    final h = _finalText;
-    if (h.length < _totalLen * 0.8) return;
-    final l = _lastNorm.length;
-    final from = math.max(0, h.length - 2 * l - 30);
-    final r = ArabicMatcher.alignSegment(_lastNorm, h, from, h.length - from);
-    if (r.$1 >= threshold && r.$2 >= h.length - 3) finish();
   }
 
   /// Hentikan bacaan dan lakukan koreksi.
