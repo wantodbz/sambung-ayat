@@ -1,27 +1,24 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:quran_whisper/quran_whisper.dart';
-import 'package:record/record.dart';
 
 import '../data/quran.dart';
 import '../main.dart';
+import '../platform/platform.dart';
+import '../services/audio_split.dart';
 import '../services/matcher.dart';
 import '../services/model_store.dart';
 import '../services/parent_report.dart';
 import '../services/settings.dart';
-import '../services/wav.dart';
 import '../widgets/model_picker.dart';
 
 enum MurajaahPhase {
   preparing,
   needModel,
   downloading,
+  ready, // versi web: menunggu ketukan "Mulai membaca"
   reading,
   checking,
   done,
@@ -29,8 +26,8 @@ enum MurajaahPhase {
 }
 
 /// Murajaah: anak membaca seluruh rangkaian ayat. Suara direkam utuh tanpa
-/// putus, lalu setelah "Selesai" diproses di HP (tanpa internet) oleh model
-/// Whisper khusus bacaan Al-Qur'an, dan dikoreksi.
+/// putus, lalu setelah "Selesai" diproses di perangkat (tanpa internet) oleh
+/// model Whisper khusus bacaan Al-Qur'an, dan dikoreksi.
 class MurajaahController extends ChangeNotifier {
   MurajaahController({
     required this.ayahs,
@@ -42,9 +39,9 @@ class MurajaahController extends ChangeNotifier {
   final double threshold;
   final String title;
 
-  final AudioRecorder _recorder = AudioRecorder();
-  StreamSubscription<Amplitude>? _ampSub;
-  StreamSubscription<TranscribeEvent>? _trSub;
+  final MurajaahIO _io = murajaahIO;
+  Timer? _levelPoll;
+  StreamSubscription<TxEvent>? _trSub;
 
   MurajaahPhase phase = MurajaahPhase.preparing;
   String message = 'Menyiapkan…';
@@ -62,20 +59,43 @@ class MurajaahController extends ChangeNotifier {
   QuranModel model = Settings.instance.model;
   Timer? _clock;
   DateTime? _startedAt;
-  String? _wavPath;
   bool _disposed = false;
   bool _cancelDownload = false;
 
   List<AyahVerdict> get mistakes =>
       verdicts.where((v) => v.verdict != Verdict.correct).toList();
 
+  /// Hapus sisa rekaman (dipanggil saat aplikasi dibuka).
+  static Future<void> deleteRecording() => murajaahIO.cleanup();
+
   Future<void> start() async {
     model = Settings.instance.model;
-    if (!await ModelStore.instance.has(model)) {
+    if (!await _io.hasModel(model)) {
       phase = MurajaahPhase.needModel;
       message = 'Murajaah membutuhkan model pengenal bacaan Al-Qur\'an. '
           'Unduh sekali saja, setelah itu bisa dipakai tanpa internet.';
       _notify();
+      return;
+    }
+    await _afterModelReady();
+  }
+
+  Future<void> _afterModelReady() async {
+    if (_io.needsGesture) {
+      phase = MurajaahPhase.ready;
+      message = 'Ketuk "Mulai membaca", lalu bacalah sampai selesai.';
+      _notify();
+      return;
+    }
+    await _beginRecording();
+  }
+
+  /// Versi web: dipanggil langsung dari ketukan tombol "Mulai membaca".
+  Future<void> startFromGesture() async {
+    final opened = _io.openRecorder(); // harus dipanggil sinkron di ketukan
+    if (!await opened) {
+      _fail('Izin mikrofon belum diberikan. Izinkan mikrofon untuk situs ini '
+          'di pengaturan Safari, lalu coba lagi.');
       return;
     }
     await _beginRecording();
@@ -92,7 +112,7 @@ class MurajaahController extends ChangeNotifier {
     _cancelDownload = false;
     _notify();
     try {
-      await ModelStore.instance.download(
+      await _io.downloadModel(
         m,
         isCancelled: () => _cancelDownload || _disposed,
         onProgress: (r, t) {
@@ -104,10 +124,10 @@ class MurajaahController extends ChangeNotifier {
         },
       );
       if (_disposed || _cancelDownload) return;
-      if (!await ModelStore.instance.has(m)) {
+      if (!await _io.hasModel(m)) {
         throw Exception('Berkas model tidak lengkap.');
       }
-      await _beginRecording();
+      await _afterModelReady();
     } catch (e) {
       _fail('Model gagal diunduh. Periksa koneksi internet lalu coba lagi.\n($e)');
     }
@@ -121,21 +141,12 @@ class MurajaahController extends ChangeNotifier {
   }
 
   Future<void> _beginRecording() async {
-    if (!await _recorder.hasPermission()) {
-      _fail('Izin mikrofon belum diberikan. Aktifkan di Pengaturan HP.');
+    if (!await _io.openRecorder()) {
+      _fail('Izin mikrofon belum diberikan. Aktifkan di pengaturan HP.');
       return;
     }
-    await deleteRecording();
-    _wavPath = await recordingPath();
     try {
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav,
-          sampleRate: 16000,
-          numChannels: 1,
-        ),
-        path: _wavPath!,
-      );
+      await _io.startRecording();
     } catch (e) {
       _fail('Perekaman gagal dimulai: $e');
       return;
@@ -151,15 +162,26 @@ class MurajaahController extends ChangeNotifier {
       elapsed = DateTime.now().difference(_startedAt!);
       _notify();
     });
-    _ampSub?.cancel();
-    _ampSub = _recorder
-        .onAmplitudeChanged(const Duration(milliseconds: 150))
-        .listen((a) {
-      // dBFS: -60 (hening) .. 0 (keras)
-      level = ((a.current + 50) / 50).clamp(0.0, 1.0);
+    _levelPoll?.cancel();
+    _levelPoll = Timer.periodic(const Duration(milliseconds: 150), (_) {
+      level = _io.level;
       _notify();
     });
     _notify();
+  }
+
+  void _stopTimers() {
+    _clock?.cancel();
+    _levelPoll?.cancel();
+    _levelPoll = null;
+    micActive = false;
+    level = 0;
+  }
+
+  /// Hentikan perekaman yang sedang berjalan lalu buang rekamannya.
+  Future<void> _stopAndDiscard() async {
+    _stopTimers();
+    await _io.discardRecording();
   }
 
   void _fail(String msg) {
@@ -175,54 +197,55 @@ class MurajaahController extends ChangeNotifier {
     await start();
   }
 
+  /// Ganti model koreksi. Bila model belum diunduh, rekaman dihentikan,
+  /// model diunduh, lalu perekaman dimulai ulang.
+  Future<void> switchModel(QuranModel m) async {
+    await Settings.instance.setModel(m);
+    model = m;
+    if (await _io.hasModel(m)) {
+      if (phase == MurajaahPhase.needModel || phase == MurajaahPhase.error) {
+        await _afterModelReady();
+      } else {
+        _notify();
+      }
+      return;
+    }
+    await _stopAndDiscard();
+    await downloadModel(m);
+  }
+
   /// Hentikan rekaman, proses dengan model, lalu koreksi.
   Future<void> finish() async {
     if (phase != MurajaahPhase.reading) return;
-    _clock?.cancel();
-    await _ampSub?.cancel();
-    _ampSub = null;
-    micActive = false;
-    level = 0;
+    _stopTimers();
     phase = MurajaahPhase.checking;
     message = 'Memproses bacaan…';
     progress = 0;
     progressLabel = 'Menyiapkan rekaman';
     _notify();
 
-    final path = await _recorder.stop() ?? _wavPath;
-    if (path == null) {
-      _fail('Rekaman tidak ditemukan.');
-      return;
-    }
     final List<Float32List> chunks;
     try {
-      final pcm = await readWavMono(path);
-      chunks = splitOnPauses(pcm);
+      // Rekaman langsung dihapus setelah dimuat ke memori.
+      final pcm = await _io.stopRecording();
+      chunks = pcm == null ? [] : splitOnPauses(pcm);
     } catch (e) {
-      await deleteRecording();
+      await _io.discardRecording();
       _fail('Rekaman tidak bisa dibaca: $e');
       return;
     }
-    // Suara sudah di memori: berkas rekaman langsung dihapus.
-    await deleteRecording();
     if (chunks.isEmpty) {
       _fail('Tidak ada suara bacaan yang terekam. Pastikan mikrofon tidak '
           'tertutup lalu ulangi.');
       return;
     }
 
-    final modelPath = await ModelStore.instance.path(model);
-    final threads = math.min(4, math.max(2, Platform.numberOfProcessors));
     final texts = <String>[];
     final started = DateTime.now();
     final done = Completer<String?>();
     progressLabel = 'Bagian 0 dari ${chunks.length}';
     _notify();
-    _trSub = QuranWhisper.transcribe(
-      modelPath: modelPath,
-      chunks: chunks,
-      threads: threads,
-    ).listen((ev) {
+    _trSub = _io.transcribe(model, chunks).listen((ev) {
       if (ev.error != null) {
         if (!done.isCompleted) done.complete(ev.error);
         return;
@@ -275,48 +298,6 @@ class MurajaahController extends ChangeNotifier {
     _notify();
   }
 
-  /// Lokasi berkas rekaman sementara.
-  static Future<String> recordingPath() async =>
-      '${(await getTemporaryDirectory()).path}/murajaah.wav';
-
-  /// Hapus rekaman sementara (dipanggil di semua kondisi).
-  static Future<void> deleteRecording() async {
-    try {
-      final f = File(await recordingPath());
-      if (await f.exists()) await f.delete();
-    } catch (_) {}
-  }
-
-  /// Hentikan perekaman yang sedang berjalan lalu hapus berkasnya.
-  Future<void> _stopAndDiscard() async {
-    _clock?.cancel();
-    await _ampSub?.cancel();
-    _ampSub = null;
-    micActive = false;
-    level = 0;
-    try {
-      if (await _recorder.isRecording()) await _recorder.stop();
-    } catch (_) {}
-    await deleteRecording();
-  }
-
-  /// Ganti model koreksi. Bila model belum diunduh, rekaman dihentikan,
-  /// model diunduh, lalu perekaman dimulai ulang.
-  Future<void> switchModel(QuranModel m) async {
-    await Settings.instance.setModel(m);
-    model = m;
-    if (await ModelStore.instance.has(m)) {
-      if (phase == MurajaahPhase.needModel || phase == MurajaahPhase.error) {
-        await _beginRecording();
-      } else {
-        _notify();
-      }
-      return;
-    }
-    await _stopAndDiscard();
-    await downloadModel(m);
-  }
-
   static String _fmtSec(int s) =>
       s >= 60 ? '${s ~/ 60} mnt ${s % 60} dtk' : '$s dtk';
 
@@ -340,16 +321,9 @@ class MurajaahController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _cancelDownload = true;
-    _clock?.cancel();
-    _ampSub?.cancel();
+    _stopTimers();
     _trSub?.cancel();
-    _recorder
-        .stop()
-        .catchError((_) => null)
-        .whenComplete(() async {
-      await deleteRecording();
-      await _recorder.dispose();
-    });
+    _io.closeRecorder();
     super.dispose();
   }
 }
@@ -424,7 +398,7 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
     );
     if (!mounted) return;
     final m = Settings.instance.model;
-    final ready = await ModelStore.instance.has(m);
+    final ready = await murajaahIO.hasModel(m);
     if (m != c.model || !ready) {
       if (!ready && c.phase == MurajaahPhase.reading && c.elapsed.inSeconds > 5) {
         final ok = await showDialog<bool>(
@@ -468,6 +442,7 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
       MurajaahPhase.needModel || MurajaahPhase.downloading =>
         Icons.download_rounded,
       MurajaahPhase.reading => Icons.mic_rounded,
+      MurajaahPhase.ready => Icons.mic_none_rounded,
       _ => Icons.hourglass_top_rounded,
     };
     final ring = reading ? 6.0 + c.level * 10 : 3.0;
@@ -483,7 +458,8 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
             style: const TextStyle(
                 color: Colors.black54, fontWeight: FontWeight.w600),
           ),
-          if (reading || error || ph == MurajaahPhase.needModel)
+          if (reading || error || ph == MurajaahPhase.needModel ||
+              ph == MurajaahPhase.ready)
             Center(
               child: Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -605,6 +581,12 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
               icon: const Icon(Icons.refresh),
               label: const Text('Coba lagi'),
               onPressed: c.retry,
+            )
+          else if (ph == MurajaahPhase.ready)
+            FilledButton.icon(
+              icon: const Icon(Icons.mic),
+              label: const Text('Mulai membaca'),
+              onPressed: c.startFromGesture,
             )
           else if (downloading)
             OutlinedButton(

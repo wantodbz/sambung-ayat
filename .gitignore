@@ -10,3 +10,5 @@ pubspec.lock
 /android/
 packages/quran_whisper/src/whisper/
 /ios/
+web/whisper/qw.js
+web/whisper/qw.wasm

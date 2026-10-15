@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Kompilasi whisper.cpp (v1.5.4) + pembungkus qw ke WebAssembly untuk versi web.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+S="$ROOT/packages/quran_whisper/src"
+O="$(mktemp -d)"
+FLAGS="-O3 -msimd128 -DNDEBUG -fno-finite-math-only"
+for f in ggml ggml-alloc ggml-backend ggml-quants; do
+  emcc $FLAGS -std=c11 -I"$S/whisper" -c "$S/whisper/$f.c" -o "$O/$f.o"
+done
+em++ $FLAGS -std=c++11 -I"$S/whisper" -c "$S/whisper/whisper.cpp" -o "$O/whisper.o"
+em++ $FLAGS -std=c++11 -I"$S" -I"$S/whisper" -c "$S/qw.cpp" -o "$O/qw.o"
+em++ $FLAGS "$O"/*.o -o "$ROOT/web/whisper/qw.js" \
+  -sMODULARIZE=1 -sEXPORT_NAME=createQW -sENVIRONMENT=worker \
+  -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=67108864 -sMAXIMUM_MEMORY=2147483648 \
+  -sSTACK_SIZE=8388608 \
+  -sEXPORTED_FUNCTIONS='["_qw_init_from_buffer","_qw_transcribe","_qw_free","_malloc","_free"]' \
+  -sEXPORTED_RUNTIME_METHODS='["UTF8ToString","HEAPU8","HEAPF32"]'
+echo "WASM selesai: $(ls -la "$ROOT/web/whisper")"

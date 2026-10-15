@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../main.dart';
+import '../platform/platform.dart';
 import '../services/settings.dart';
 import '../widgets/model_picker.dart';
 import 'about_screen.dart';
@@ -83,6 +84,7 @@ class HomeScreen extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const ParentScreen())),
             ),
             const SizedBox(height: 22),
+            if (!streamsAudio)
             OutlinedButton.icon(
               icon: const Icon(Icons.download),
               label: const Text('Kelola Unduhan Audio'),

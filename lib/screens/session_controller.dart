@@ -3,13 +3,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:just_audio/just_audio.dart';
 
 import '../data/quran.dart';
-import '../services/audio_store.dart';
 import '../services/matcher.dart';
 import '../services/parent_report.dart';
-import '../services/recognizer.dart';
+import '../platform/platform.dart';
 
 enum SessionMode { sambungAyat, murajaah }
 
@@ -32,8 +30,15 @@ class SessionController extends ChangeNotifier {
   final double threshold;
   final String title;
 
-  final Recognizer _rec = Recognizer.instance;
-  AudioPlayer? _player;
+  final SpeechEngine _rec = speechEngine;
+  MurottalPlayer? _player;
+
+  /// Versi web: sesi harus dimulai dari ketukan pengguna (aturan iPhone).
+  static bool get needsGesture => streamsAudio;
+
+  /// Versi web: bacaan sedang diperiksa model.
+  bool processing = false;
+  bool _forceNext = false;
 
   Phase phase = Phase.preparing;
   int index = 0;
@@ -74,20 +79,40 @@ class SessionController extends ChangeNotifier {
     userAyahs = [for (var i = 0; i < ayahs.length; i++) i]
         .where(isUserTurn)
         .length;
-    final ok = await _rec.init();
-    if (!ok) {
-      _fail('Pengenal suara tidak tersedia di HP ini. Pastikan aplikasi '
-          'Google terpasang dan izin mikrofon diberikan.');
-      return;
-    }
     _rec.onResult = _onResult;
     _rec.onFatalError = _fail;
     _rec.onListeningChanged = (l) {
       micActive = l;
       _notify();
     };
-    if (isSambung) _player = AudioPlayer();
+    _rec.onProcessingChanged = (p) {
+      processing = p;
+      _notify();
+    };
+    if (isSambung) _player ??= createMurottalPlayer();
+    phase = Phase.preparing;
+    message = 'Menyiapkan…';
+    _notify();
+    final ok = await _rec.init();
+    if (!ok) {
+      if (phase != Phase.error) {
+        _fail('Pengenal suara tidak tersedia di HP ini. Pastikan aplikasi '
+            'Google terpasang dan izin mikrofon diberikan.');
+      }
+      return;
+    }
     await _advance();
+  }
+
+  /// Versi web: dipanggil langsung dari ketukan tombol "Mulai".
+  Future<void> startFromGesture() async {
+    if (isSambung) {
+      _player ??= createMurottalPlayer();
+      _player!.unlockFromGesture();
+    }
+    final prep = _rec.prepareFromGesture(); // sinkron di dalam ketukan
+    await start();
+    await prep.catchError((_) {});
   }
 
   void _fail(String msg) {
@@ -153,20 +178,7 @@ class SessionController extends ChangeNotifier {
   }
 
   Future<void> _play(int s, int a) async {
-    final p = _player;
-    if (p == null) return;
-    try {
-      final path = await AudioStore.instance.path(s, a);
-      await p.setFilePath(path);
-      final done = p.processingStateStream
-          .firstWhere((st) => st == ProcessingState.completed)
-          .timeout(const Duration(minutes: 5));
-      unawaited(p.play());
-      await done;
-      await p.stop();
-    } catch (_) {
-      // Bila audio gagal diputar, lanjutkan saja agar sesi tidak macet.
-    }
+    await _player?.play(s, a);
   }
 
   void _beginListening({bool keepLeftover = false}) {
@@ -228,12 +240,22 @@ class SessionController extends ChangeNotifier {
     final raw = '$_finalRaw $_partialRaw'.trim();
     heard = raw.length > 120 ? '…${raw.substring(raw.length - 120)}' : raw;
     _notify();
-    if (phase == Phase.listening) _evaluate(isFinal: isFinal);
+    if (phase == Phase.listening) {
+      final force = isFinal && _forceNext;
+      if (isFinal) _forceNext = false;
+      _evaluate(isFinal: isFinal, force: force);
+    }
   }
 
   /// Dipanggil tombol "Selesai membaca".
   void finishReading() {
     if (phase != Phase.listening) return;
+    if (_rec.supportsFlush && _rec.isListening) {
+      // Versi web: periksa potongan rekaman sekarang, lalu nilai.
+      _forceNext = true;
+      _rec.flush();
+      return;
+    }
     _evaluate(isFinal: true, force: true);
   }
 
@@ -381,6 +403,7 @@ class SessionController extends ChangeNotifier {
     _rec.onResult = null;
     _rec.onFatalError = null;
     _rec.onListeningChanged = null;
+    _rec.onProcessingChanged = null;
     _rec.stop();
     _player?.dispose();
     super.dispose();

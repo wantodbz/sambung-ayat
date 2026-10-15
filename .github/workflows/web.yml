@@ -1,0 +1,75 @@
+name: Build Web (iPhone)
+
+# Versi web/PWA: dibuka lewat Safari lalu "Tambahkan ke Layar Utama".
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.29.3'
+          cache: true
+
+      - name: Mesin whisper (WebAssembly)
+        run: |
+          bash tool/fetch_whisper.sh
+          git clone -q --depth 1 https://github.com/emscripten-core/emsdk.git /tmp/emsdk
+          /tmp/emsdk/emsdk install 3.1.64 > /dev/null
+          /tmp/emsdk/emsdk activate 3.1.64 > /dev/null
+          source /tmp/emsdk/emsdk_env.sh > /dev/null
+          bash tool/build_wasm.sh 2> wasm.log || { echo "::error title=WASM gagal::$(grep -E 'error' wasm.log | head -20 | cut -c1-300 | sed ':a;N;$!ba;s/\n/%0A/g')"; exit 1; }
+          ls -la web/whisper
+
+      - name: Bangun web
+        run: |
+          set +e
+          flutter pub get
+          flutter build web --release --base-href /sambung-ayat/ > build.log 2>&1
+          code=$?
+          tail -40 build.log
+          if [ $code -ne 0 ]; then
+            msg=$(grep -E "Error|error" build.log | head -40 | cut -c1-300 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=Build web gagal::$msg"
+          fi
+          exit $code
+
+      - name: Sertakan model
+        run: |
+          mkdir -p build/web/models
+          for m in tiny base; do
+            curl -sfL -o build/web/models/ggml-quran-$m.bin \
+              https://github.com/wantodbz/sambung-ayat/releases/download/model-v1/ggml-quran-$m.bin
+          done
+          ls -la build/web/models
+          touch build/web/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

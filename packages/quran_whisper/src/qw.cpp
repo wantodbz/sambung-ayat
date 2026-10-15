@@ -15,6 +15,13 @@ extern "C" void *qw_init(const char *model_path) {
   return whisper_init_from_file_with_params(model_path, cp);
 }
 
+extern "C" void *qw_init_from_buffer(void *buffer, int32_t size) {
+  whisper_log_set(qw_silent_log, nullptr);
+  struct whisper_context_params cp = whisper_context_default_params();
+  cp.use_gpu = false;
+  return whisper_init_from_buffer_with_params(buffer, (size_t)size, cp);
+}
+
 extern "C" int32_t qw_transcribe(void *vctx, const float *pcm, int32_t n_samples,
                                  int32_t n_threads, char *out, int32_t out_len) {
   if (vctx == nullptr || out == nullptr || out_len <= 0) return -1;

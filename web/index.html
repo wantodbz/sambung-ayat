@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Sambung Ayat & Murajaah Al-Qur'an — Abu Syafiq">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Sambung Ayat">
+  <meta name="theme-color" content="#0E5C46">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="manifest" href="manifest.json">
+  <title>Sambung Ayat</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #F5FAF6; }
+    #splash { position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; font-family: -apple-system, sans-serif;
+      color: #083D2E; gap: 14px; }
+    #splash img { width: 96px; height: 96px; border-radius: 22px; }
+  </style>
+</head>
+<body>
+  <div id="splash">
+    <img src="icons/Icon-192.png" alt="">
+    <div>Memuat Sambung Ayat…</div>
+  </div>
+  <script src="js/recorder.js"></script>
+  <script src="js/qw_bridge.js"></script>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var s = document.getElementById('splash'); if (s) s.remove();
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

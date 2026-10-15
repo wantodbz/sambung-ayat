@@ -4,9 +4,11 @@ import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../platform/platform.dart';
+
 /// Pembungkus pengenal suara Android (bahasa Arab) yang bisa "mendengar
 /// terus": bila sistem berhenti karena jeda, ia otomatis dimulai lagi.
-class Recognizer {
+class Recognizer extends SpeechEngine {
   Recognizer._();
   static final Recognizer instance = Recognizer._();
 
@@ -15,25 +17,18 @@ class Recognizer {
   bool _available = false;
   String? _localeId;
 
-  /// Dipanggil setiap ada hasil: (teks, final?, nomor sesi dengar).
   /// Nomor sesi naik setiap kali pengenal suara dimulai ulang setelah jeda.
-  void Function(String text, bool isFinal, int session)? onResult;
-
   int _session = 0;
-
-  /// Dipanggil bila terjadi galat yang perlu diketahui pengguna.
-  void Function(String message)? onFatalError;
-
-  /// Dipanggil saat status mendengar berubah.
-  void Function(bool listening)? onListeningChanged;
 
   bool _wanted = false; // apakah sesi ingin terus mendengar
   bool _restartScheduled = false;
   int _generation = 0;
 
   bool get available => _available;
+  @override
   bool get isListening => _speech.isListening;
 
+  @override
   Future<bool> init() async {
     if (_initialized) return _available;
     _available = await _speech.initialize(
@@ -63,6 +58,7 @@ class Recognizer {
   }
 
   /// Mulai mendengar terus-menerus sampai [stop] dipanggil.
+  @override
   Future<void> start() async {
     _wanted = true;
     _generation++;
@@ -70,6 +66,7 @@ class Recognizer {
   }
 
   /// Hentikan mendengar dan buang hasil yang belum final.
+  @override
   Future<void> stop() async {
     _wanted = false;
     _generation++;

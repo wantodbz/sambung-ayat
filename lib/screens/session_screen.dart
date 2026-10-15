@@ -19,7 +19,11 @@ class _SessionScreenState extends State<SessionScreen> {
   void initState() {
     super.initState();
     c.addListener(_onChange);
-    WidgetsBinding.instance.addPostFrameCallback((_) => c.start());
+    if (SessionController.needsGesture) {
+      c.message = 'Ketuk "Mulai" untuk memulai.';
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => c.start());
+    }
   }
 
   void _onChange() {
@@ -199,7 +203,9 @@ class _StatusCard extends StatelessWidget {
         if (c.phase == Phase.listening) ...[
           const SizedBox(height: 10),
           Text(
-            c.micActive ? 'Mendengarkan…' : 'Menyiapkan mikrofon…',
+            c.micActive
+                ? 'Mendengarkan…'
+                : (c.processing ? 'Memeriksa bacaan…' : 'Menyiapkan mikrofon…'),
             style: const TextStyle(color: Colors.black45),
           ),
         ],
@@ -209,12 +215,26 @@ class _StatusCard extends StatelessWidget {
 }
 
 class _Actions extends StatelessWidget {
+  static final Expando<bool> _started = Expando();
+
   const _Actions({required this.c, required this.onHint});
   final SessionController c;
   final VoidCallback onHint;
 
   @override
   Widget build(BuildContext context) {
+    if (SessionController.needsGesture &&
+        c.phase == Phase.preparing &&
+        _Actions._started[c] != true) {
+      return FilledButton.icon(
+        icon: const Icon(Icons.play_arrow),
+        label: const Text('Mulai'),
+        onPressed: () {
+          _Actions._started[c] = true;
+          c.startFromGesture();
+        },
+      );
+    }
     if (c.phase == Phase.error) {
       return FilledButton.icon(
         icon: const Icon(Icons.refresh),

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'model_store.dart';
@@ -34,7 +35,8 @@ class Settings {
   static const _kStrict = 'strictness';
   static const _kModel = 'quran_model';
   Strictness strictness = Strictness.normal;
-  QuranModel model = QuranModel.akurat;
+  // Versi web (iPhone/Safari) lebih lambat: bawaan model Cepat.
+  QuranModel model = kIsWeb ? QuranModel.cepat : QuranModel.akurat;
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();

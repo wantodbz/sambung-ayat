@@ -14,6 +14,9 @@ extern "C" {
 // Muat model whisper.cpp. Mengembalikan NULL bila gagal.
 QW_EXPORT void *qw_init(const char *model_path);
 
+// Muat model dari memori (dipakai versi web/WASM).
+QW_EXPORT void *qw_init_from_buffer(void *buffer, int32_t size);
+
 // Transkripsi PCM float 16 kHz mono. Teks UTF-8 ditulis ke [out]
 // (maks out_len-1 byte). Mengembalikan panjang teks, atau -1 bila gagal.
 QW_EXPORT int32_t qw_transcribe(void *ctx, const float *pcm, int32_t n_samples,

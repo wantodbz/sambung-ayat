@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../main.dart';
+import '../platform/platform.dart';
 import '../services/model_store.dart';
 import '../services/settings.dart';
 
@@ -28,7 +29,7 @@ class _ModelPickerState extends State<ModelPicker> {
 
   Future<void> _refresh() async {
     for (final m in QuranModel.values) {
-      _sizes[m] = await ModelStore.instance.size(m);
+      _sizes[m] = await murajaahIO.modelSize(m);
     }
     if (mounted) setState(() {});
   }
@@ -104,7 +105,7 @@ class _ModelPickerState extends State<ModelPicker> {
       ),
     );
     if (yes != true) return;
-    await ModelStore.instance.delete(m);
+    await murajaahIO.deleteModel(m);
     await _refresh();
   }
 }

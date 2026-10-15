@@ -4,6 +4,8 @@ import '../data/quran.dart';
 import '../main.dart';
 import '../services/audio_store.dart';
 import '../services/settings.dart';
+import '../platform/platform.dart';
+import '../services/model_store.dart';
 import 'murajaah_screen.dart';
 import 'session_controller.dart';
 import 'session_screen.dart';
@@ -78,7 +80,11 @@ class RangeScreen extends StatelessWidget {
   Future<void> _start(
       BuildContext context, List<Ayah> ayahs, String label) async {
     if (mode == SessionMode.sambungAyat) {
-      final ok = await ensureAudio(context, ayahs);
+      // Versi web: murottal diputar langsung, tetapi pengecekan bacaan
+      // memerlukan model pengenal bacaan.
+      final ok = streamsAudio
+          ? await ensureModel(context)
+          : await ensureAudio(context, ayahs);
       if (!ok || !context.mounted) return;
     }
     final threshold = Settings.instance.strictness.threshold;
@@ -229,6 +235,100 @@ class _NumberBadge extends StatelessWidget {
       child: Text('$n',
           style: const TextStyle(
               fontWeight: FontWeight.w700, color: AppColors.greenDark)),
+    );
+  }
+}
+
+/// Versi web: pastikan model pengenal bacaan sudah diunduh.
+Future<bool> ensureModel(BuildContext context) async {
+  final m = Settings.instance.model;
+  if (await murajaahIO.hasModel(m)) return true;
+  if (!context.mounted) return false;
+  final yes = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Unduh model pengecek bacaan'),
+      content: Text('Pengecekan bacaan memerlukan model ${m.label} '
+          '(${m.hint.split('.').first.replaceFirst('Unduhan ', '')}). '
+          'Cukup diunduh sekali.'),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal')),
+        FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Unduh')),
+      ],
+    ),
+  );
+  if (yes != true || !context.mounted) return false;
+  return await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _ModelDownloadDialog(model: m),
+      ) ??
+      false;
+}
+
+class _ModelDownloadDialog extends StatefulWidget {
+  const _ModelDownloadDialog({required this.model});
+  final QuranModel model;
+
+  @override
+  State<_ModelDownloadDialog> createState() => _ModelDownloadDialogState();
+}
+
+class _ModelDownloadDialogState extends State<_ModelDownloadDialog> {
+  int _r = 0;
+  int _t = 0;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _run();
+  }
+
+  Future<void> _run() async {
+    setState(() => _error = null);
+    try {
+      await murajaahIO.downloadModel(widget.model, onProgress: (r, t) {
+        if (mounted) {
+          setState(() {
+            _r = r;
+            _t = t;
+          });
+        }
+      });
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(_error == null ? 'Mengunduh model…' : 'Unduhan gagal'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_error == null) ...[
+            LinearProgressIndicator(value: _t > 0 ? _r / _t : null),
+            const SizedBox(height: 12),
+            Text('${(_r / 1048576).toStringAsFixed(1)}'
+                '${_t > 0 ? ' / ${(_t / 1048576).toStringAsFixed(1)}' : ''} MB'),
+          ] else
+            Text(_error!),
+        ],
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Tutup')),
+        if (_error != null)
+          FilledButton(onPressed: _run, child: const Text('Coba lagi')),
+      ],
     );
   }
 }
