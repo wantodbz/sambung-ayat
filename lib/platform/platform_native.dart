@@ -18,6 +18,7 @@ SpeechEngine createSpeechEngine() => Recognizer.instance;
 MurottalPlayer createMurottalPlayer() => _NativePlayer();
 MurajaahIO createMurajaahIO() => _NativeMurajaahIO();
 const bool streamsAudio = false;
+bool browserSpeech() => false;
 
 class _NativePlayer extends MurottalPlayer {
   final AudioPlayer _p = AudioPlayer();

@@ -84,3 +84,6 @@ final MurajaahIO murajaahIO = impl.createMurajaahIO();
 
 /// Versi web: audio diputar langsung dari internet (tanpa unduh per surat).
 const bool streamsAudio = impl.streamsAudio;
+
+/// Versi web: browser punya pengenal suara bawaan (Sambung Ayat tanpa model).
+bool get browserSpeech => impl.browserSpeech();

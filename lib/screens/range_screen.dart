@@ -83,7 +83,7 @@ class RangeScreen extends StatelessWidget {
       // Versi web: murottal diputar langsung, tetapi pengecekan bacaan
       // memerlukan model pengenal bacaan.
       final ok = streamsAudio
-          ? await ensureModel(context)
+          ? (browserSpeech || await ensureModel(context))
           : await ensureAudio(context, ayahs);
       if (!ok || !context.mounted) return;
     }

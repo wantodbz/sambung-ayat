@@ -74,6 +74,16 @@ jobs:
           ls -la build/web/models
           touch build/web/.nojekyll
 
+      - name: Uji di browser (WebKit & Chromium)
+        continue-on-error: true
+        run: |
+          mkdir -p site && cp -r build/web site/sambung-ayat
+          mkdir -p site/sambung-ayat/test && cp ikhlas.wav site/sambung-ayat/test/ || true
+          (python3 -m http.server 8080 --directory site > /dev/null 2>&1 &)
+          npm i --no-save --silent playwright@1.48.2
+          npx playwright install --with-deps webkit chromium > /dev/null 2>&1
+          node tool/web_test.mjs
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/web

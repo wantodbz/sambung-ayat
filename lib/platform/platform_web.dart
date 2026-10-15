@@ -8,7 +8,8 @@ import '../services/model_store.dart';
 import '../services/settings.dart';
 import 'platform.dart';
 
-SpeechEngine createSpeechEngine() => _WebSpeech();
+SpeechEngine createSpeechEngine() => _HybridSpeech();
+bool browserSpeech() => _speechJs.supported();
 MurottalPlayer createMurottalPlayer() => _WebPlayer();
 MurajaahIO createMurajaahIO() => _WebMurajaahIO();
 const bool streamsAudio = true;
@@ -35,6 +36,16 @@ external _QwAudio get _audio;
 extension type _QwAudio._(JSObject _) implements JSObject {
   external void unlock();
   external JSPromise<JSBoolean> play(String url);
+  external void stop();
+}
+
+@JS('qwSpeech')
+external _QwSpeech get _speechJs;
+
+extension type _QwSpeech._(JSObject _) implements JSObject {
+  external bool supported();
+  external bool start(
+      String lang, JSFunction onResult, JSFunction onEnd, JSFunction onError);
   external void stop();
 }
 
@@ -90,7 +101,7 @@ class _WebPlayer extends MurottalPlayer {
 // Pengenal suara Sambung Ayat: rekam satu ayat → deteksi akhir bacaan
 // (hening) → periksa dengan model → hasil "final".
 
-class _WebSpeech extends SpeechEngine {
+class _WhisperSpeech extends SpeechEngine {
   bool _wanted = false;
   bool _capturing = false;
   int _gen = 0;
@@ -221,6 +232,157 @@ class _WebSpeech extends SpeechEngine {
     if (_capturing) _recorder.discard();
     _capturing = false;
     onListeningChanged?.call(false);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pengenal suara bawaan Safari (tanpa unduh model).
+
+class _SafariSpeech extends SpeechEngine {
+  bool _wanted = false;
+  bool _listening = false;
+  int _gen = 0;
+  int _session = 0;
+  int _emptyEnds = 0;
+  bool _gotResult = false;
+
+  /// Dipanggil bila Safari menolak/tidak mendukung pengenalan suara.
+  void Function(String code)? onUnavailable;
+
+  @override
+  bool get isListening => _listening;
+
+  @override
+  Future<bool> init() async => _speechJs.supported();
+
+  @override
+  Future<void> start() async {
+    _wanted = true;
+    _gen++;
+    _emptyEnds = 0;
+    _listen();
+  }
+
+  void _listen() {
+    if (!_wanted) return;
+    final gen = _gen;
+    final session = ++_session;
+    _gotResult = false;
+    final onRes = ((JSString t, JSBoolean f) {
+      if (gen != _gen) return;
+      _gotResult = true;
+      _emptyEnds = 0;
+      onResult?.call(t.toDart, f.toDart, session);
+    }).toJS;
+    final onEnd = (() {
+      if (gen != _gen) return;
+      _listening = false;
+      onListeningChanged?.call(false);
+      if (!_gotResult) _emptyEnds++;
+      if (_emptyEnds >= 6) {
+        // Berulang kali berhenti tanpa hasil: anggap tidak berfungsi.
+        _wanted = false;
+        onUnavailable?.call('no-result');
+        return;
+      }
+      if (_wanted) Timer(const Duration(milliseconds: 250), _listen);
+    }).toJS;
+    final onErr = ((JSString code) {
+      if (gen != _gen) return;
+      final c = code.toDart;
+      if (c == 'not-allowed' ||
+          c == 'service-not-allowed' ||
+          c == 'audio-capture' ||
+          c == 'language-not-supported' ||
+          c == 'start-failed') {
+        _wanted = false;
+        _gen++;
+        _listening = false;
+        _speechJs.stop();
+        onUnavailable?.call(c);
+      } else if (c == 'network') {
+        _wanted = false;
+        onFatalError?.call('Pengenal suara Safari membutuhkan internet. '
+            'Periksa koneksi lalu ketuk "Coba lagi".');
+      }
+      // 'no-speech', 'aborted', dll.: onend akan memulai ulang.
+    }).toJS;
+    if (_speechJs.start('ar-SA', onRes, onEnd, onErr)) {
+      _listening = true;
+      onListeningChanged?.call(true);
+    }
+  }
+
+  @override
+  Future<void> stop() async {
+    _wanted = false;
+    _gen++;
+    _speechJs.stop();
+    _listening = false;
+    onListeningChanged?.call(false);
+  }
+}
+
+/// Jalan tengah: pakai pengenal suara Safari bila tersedia; bila tidak,
+/// pindah ke model pengecek bacaan (whisper).
+class _HybridSpeech extends SpeechEngine {
+  final _SafariSpeech _safari = _SafariSpeech();
+  final _WhisperSpeech _whisper = _WhisperSpeech();
+  late SpeechEngine _active =
+      _speechJs.supported() ? _safari : _whisper;
+
+  _HybridSpeech() {
+    for (final e in [_safari, _whisper]) {
+      e.onResult = (t, f, s) {
+        if (identical(e, _active)) onResult?.call(t, f, s);
+      };
+      e.onFatalError = (m) {
+        if (identical(e, _active)) onFatalError?.call(m);
+      };
+      e.onListeningChanged = (l) {
+        if (identical(e, _active)) onListeningChanged?.call(l);
+      };
+      e.onProcessingChanged = (p) {
+        if (identical(e, _active)) onProcessingChanged?.call(p);
+      };
+    }
+    _safari.onUnavailable = _fallback;
+  }
+
+  Future<void> _fallback(String code) async {
+    _active = _whisper;
+    onListeningChanged?.call(false);
+    final hasModel = await murajaahIO.hasModel(Settings.instance.model);
+    onFatalError?.call(hasModel
+        ? 'Pengenal suara Safari tidak bisa dipakai di iPhone ini ($code). '
+            'Ketuk "Coba lagi" untuk memakai model pengecek bacaan.'
+        : 'Pengenal suara Safari tidak bisa dipakai di iPhone ini ($code). '
+            'Buka Pengaturan (⚙) di halaman utama, unduh model pengecek, '
+            'lalu coba lagi.');
+  }
+
+  @override
+  bool get isListening => _active.isListening;
+
+  @override
+  bool get supportsFlush => _active.supportsFlush;
+
+  @override
+  void flush() => _active.flush();
+
+  @override
+  Future<void> prepareFromGesture() => _active.prepareFromGesture();
+
+  @override
+  Future<bool> init() => _active.init();
+
+  @override
+  Future<void> start() => _active.start();
+
+  @override
+  Future<void> stop() async {
+    await _safari.stop();
+    await _whisper.stop();
   }
 }
 

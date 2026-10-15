@@ -125,7 +125,18 @@ class SessionController extends ChangeNotifier {
   /// Coba lagi setelah galat (mis. internet putus).
   Future<void> retry() async {
     if (phase != Phase.error) return;
+    // Versi web: ketukan "Coba lagi" juga membuka mikrofon (aturan iPhone).
+    final prep = _rec.prepareFromGesture();
     _resetHeard(all: true);
+    phase = Phase.preparing;
+    message = 'Menyiapkan…';
+    _notify();
+    await prep.catchError((_) {});
+    final ok = await _rec.init();
+    if (!ok) {
+      if (phase != Phase.error) _fail('Pengecek bacaan belum siap.');
+      return;
+    }
     await _advance();
   }
 
