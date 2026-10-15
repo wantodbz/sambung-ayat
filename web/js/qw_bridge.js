@@ -43,6 +43,12 @@
       return (await call({ type: 'transcribe', pcm: copy }, null, [copy.buffer])).text;
     },
     deleteModel: async (url) => { await call({ type: 'delete', url }); return true; },
-    supported: () => typeof WebAssembly === 'object' && typeof Worker === 'function' && 'caches' in self,
+    // Perlu WebAssembly SIMD (Safari/iOS 16.4+), Worker, dan Cache API.
+    supported: () => {
+      try {
+        return typeof WebAssembly === 'object' && typeof Worker === 'function' && 'caches' in self &&
+          WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]));
+      } catch (_) { return false; }
+    },
   };
 })();

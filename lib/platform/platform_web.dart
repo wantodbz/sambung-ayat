@@ -131,8 +131,8 @@ class _WhisperSpeech extends SpeechEngine {
   @override
   Future<bool> init() async {
     if (!_bridge.supported()) {
-      onFatalError?.call('Browser ini belum mendukung pengecekan bacaan. '
-          'Perbarui iOS ke versi terbaru lalu coba lagi.');
+      onFatalError?.call('Browser ini belum mendukung model pengecek bacaan '
+          '(perlu iOS 16.4 atau lebih baru).');
       return false;
     }
     try {
@@ -407,6 +407,10 @@ class _WebMurajaahIO extends MurajaahIO {
   @override
   Future<void> downloadModel(QuranModel m,
       {void Function(int, int)? onProgress, bool Function()? isCancelled}) {
+    if (!_bridge.supported()) {
+      throw Exception('Browser/iOS ini belum mendukung model pengecek. '
+          'Diperlukan iOS 16.4 atau lebih baru.');
+    }
     return _ensureLoaded(m, onProgress);
   }
 

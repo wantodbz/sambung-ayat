@@ -32,7 +32,7 @@ for (const [name, bt] of [['webkit', webkit], ['chromium', chromium]]) {
       const text = await qwBridge.transcribe(pcm);
       const cached = await qwBridge.modelSize(base + 'models/ggml-quran-tiny.bin');
       return { ok: true, unduh_s: +((t1 - t0) / 1000).toFixed(1), proses_s: +((performance.now() - t1) / 1000).toFixed(1),
-               progres_terakhir: last, cache: cached, speech: qwSpeech.supported(), text };
+               progres_terakhir: last, cache: cached, speech: qwSpeech.supported(), didukung: qwBridge.supported(), text };
     } catch (e) {
       return { ok: false, err: String(e && e.message || e) };
     }
