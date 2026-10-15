@@ -37,9 +37,9 @@ jobs:
             python -c "from huggingface_hub import snapshot_download; snapshot_download('tarteel-ai/whisper-$m-ar-quran', local_dir='hf-$m', allow_patterns=['*.json','*.txt','pytorch_model.bin'])"
             mkdir -p out-$m
             python wcpp/models/convert-h5-to-ggml.py hf-$m owhisper out-$m
-            ./wcpp/quantize out-$m/ggml-model.bin ggml-quran-$m.bin q8_0
+            ./wcpp/quantize out-$m/ggml-model.bin ggml-quran-$m.bin q8_0 > q-$m.log 2>&1 || { echo "::error title=Kuantisasi $m::$(tail -15 q-$m.log | sed ':a;N;$!ba;s/\n/%0A/g')"; exit 1; }
           done
-          ls -la *.bin
+          echo "::notice title=Ukuran model::$(ls -la ggml-quran-*.bin | awk '{print $9": "$5}' | tr '\n' ' ')"
 
       - name: Uji dengan murottal (Al-Mulk 1-5)
         run: |
@@ -51,13 +51,20 @@ jobs:
           done
           ffmpeg -loglevel error -i "concat:${list#|}" -ar 16000 -ac 1 -c:a pcm_s16le test.wav
           dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 test.wav)
+          fail=0
           for m in tiny base; do
+            ls -la ggml-quran-$m.bin
             s=$(date +%s.%N)
-            ./wcpp/main -m ggml-quran-$m.bin -l ar -f test.wav -nt -t 4 > out-$m.txt 2> log-$m.txt || (tail -20 log-$m.txt; exit 1)
-            e=$(date +%s.%N)
-            t=$(python -c "print(round($e-$s,1))")
-            echo "::notice title=Model $m (audio ${dur}s, proses ${t}s)::$(tr '\n' ' ' < out-$m.txt | cut -c1-900)"
+            if ./wcpp/main -m ggml-quran-$m.bin -l ar -f test.wav -nt -t 4 > out-$m.txt 2> log-$m.txt; then
+              e=$(date +%s.%N)
+              t=$(python -c "print(round($e-$s,1))")
+              echo "::notice title=Model $m::audio ${dur}s, proses ${t}s :: $(tr '\n' ' ' < out-$m.txt | head -c 700)"
+            else
+              fail=1
+              echo "::error title=Model $m gagal::$(tail -25 log-$m.txt | sed ':a;N;$!ba;s/\n/%0A/g')"
+            fi
           done
+          exit $fail
 
       - name: Terbitkan model
         uses: softprops/action-gh-release@v2
