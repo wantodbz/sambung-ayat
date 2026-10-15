@@ -53,6 +53,11 @@ if os.path.isfile(kts):
     path = kts
     block = (
         'android {\n'
+        '    packaging {\n'
+        '        jniLibs {\n'
+        '            useLegacyPackaging = true\n'
+        '        }\n'
+        '    }\n'
         '    signingConfigs {\n'
         '        create("tetap") {\n'
         f'            storeFile = file("{keystore}")\n'
@@ -68,6 +73,11 @@ else:
     path = groovy
     block = (
         'android {\n'
+        '    packagingOptions {\n'
+        '        jniLibs {\n'
+        '            useLegacyPackaging true\n'
+        '        }\n'
+        '    }\n'
         '    signingConfigs {\n'
         '        tetap {\n'
         f'            storeFile file("{keystore}")\n'
