@@ -1,7 +1,7 @@
 name: sambung_ayat
 description: Aplikasi Sambung Ayat dan Murajaah Al-Qur'an dengan murottal Syaikh Aiman Rusydi Suwaid.
 publish_to: 'none'
-version: 1.2.0+3
+version: 1.3.0+4
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

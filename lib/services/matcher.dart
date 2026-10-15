@@ -9,7 +9,11 @@ class AyahVerdict {
   final Ayah ayah;
   final Verdict verdict;
   final double similarity;
-  const AyahVerdict(this.ayah, this.verdict, this.similarity);
+
+  /// Indeks karakter teks ayat yang diwarnai merah (hanya untuk [Verdict.wrong]).
+  final Set<int> wrongChars;
+  const AyahVerdict(this.ayah, this.verdict, this.similarity,
+      [this.wrongChars = const {}]);
 }
 
 /// Hasil pencocokan bacaan dengan satu ayat.
@@ -36,18 +40,35 @@ class MatchResult {
 class ArabicMatcher {
   ArabicMatcher._();
 
+  static bool isMark(int r) =>
+      (r >= 0x0610 && r <= 0x061A) ||
+      (r >= 0x064B && r <= 0x065F) ||
+      r == 0x0670 ||
+      (r >= 0x06D6 && r <= 0x06ED) ||
+      r == 0x0640;
+
   /// Normalisasi: hapus harakat & tanda waqaf, satukan bentuk huruf,
   /// hapus alif (karena rasm Utsmani sering membuang/menyisipkan alif),
   /// dan hapus spasi.
-  static String normalize(String input) {
+  static String normalize(String input) => normalizeWithMap(input).$1;
+
+  /// Seperti [normalize], ditambah peta: indeks huruf ternormalisasi ->
+  /// indeks karakter pada teks asli (untuk mewarnai huruf yang salah).
+  static (String, List<int>) normalizeWithMap(String input) {
     final sb = StringBuffer();
-    for (final r in input.runes) {
-      // Harakat, tanwin, sukun, syaddah, tanda Qur'ani, tatwil, alif kecil.
-      if ((r >= 0x0610 && r <= 0x061A) ||
-          (r >= 0x064B && r <= 0x065F) ||
-          r == 0x0670 ||
-          (r >= 0x06D6 && r <= 0x06ED) ||
-          r == 0x0640) {
+    final map = <int>[];
+    void put(int c, int i) {
+      sb.writeCharCode(c);
+      map.add(i);
+    }
+
+    for (var i = 0; i < input.length; i++) {
+      final r = input.codeUnitAt(i);
+      if (isMark(r)) continue;
+      // Rasm Utsmani: waw + alif kecil dibaca/ditulis alif (الصلوة = الصلاة).
+      if (r == 0x0648 &&
+          i + 1 < input.length &&
+          input.codeUnitAt(i + 1) == 0x0670) {
         continue;
       }
       switch (r) {
@@ -59,23 +80,109 @@ class ArabicMatcher {
         case 0x0671: // ٱ
           continue;
         case 0x0624: // ؤ
-          sb.writeCharCode(0x0648);
+          put(0x0648, i);
           continue;
         case 0x0626: // ئ
         case 0x0649: // ى
         case 0x06CC: // ی
-          sb.writeCharCode(0x064A);
+          put(0x064A, i);
           continue;
         case 0x0629: // ة
-          sb.writeCharCode(0x0647);
+          put(0x0647, i);
           continue;
         case 0x06A9: // ک
-          sb.writeCharCode(0x0643);
+          put(0x0643, i);
           continue;
       }
-      if (r >= 0x0621 && r <= 0x064A) sb.writeCharCode(r);
+      if (r >= 0x0621 && r <= 0x064A) put(r, i);
     }
-    return sb.toString();
+    return (sb.toString(), map);
+  }
+
+  /// Indeks karakter pada [text] (teks ayat asli) yang perlu diwarnai merah:
+  /// huruf yang terbaca lain atau tidak terdengar, beserta harakatnya.
+  /// Bila separuh huruf atau lebih dalam satu kata salah, seluruh kata diwarnai.
+  static Set<int> wrongChars(
+      String text, String heard, int from, int slack, int end) {
+    final (exp, map) = normalizeWithMap(text);
+    final l = exp.length;
+    final wrongNorm = <int>{};
+    final e = math.min(end, heard.length);
+    if (e <= from || l == 0) {
+      for (var i = 0; i < l; i++) {
+        wrongNorm.add(i);
+      }
+    } else {
+      final s = heard.substring(from, e);
+      final n = s.length;
+      final d = List.generate(l + 1, (_) => List<int>.filled(n + 1, 0));
+      for (var j = 0; j <= n; j++) {
+        d[0][j] = j <= slack ? 0 : 2 * (j - slack);
+      }
+      for (var i = 1; i <= l; i++) {
+        d[i][0] = i;
+        final ca = exp.codeUnitAt(i - 1);
+        final row = d[i];
+        final up = d[i - 1];
+        for (var j = 1; j <= n; j++) {
+          var v = up[j - 1] + (ca == s.codeUnitAt(j - 1) ? 0 : 2);
+          if (up[j] + 1 < v) v = up[j] + 1;
+          if (row[j - 1] + 2 < v) v = row[j - 1] + 2;
+          row[j] = v;
+        }
+      }
+      var i = l;
+      var j = n;
+      while (i > 0) {
+        if (j > 0) {
+          final c = exp.codeUnitAt(i - 1) == s.codeUnitAt(j - 1) ? 0 : 2;
+          if (d[i][j] == d[i - 1][j - 1] + c) {
+            if (c != 0) wrongNorm.add(i - 1);
+            i--;
+            j--;
+            continue;
+          }
+          if (d[i][j] == d[i][j - 1] + 2) {
+            j--;
+            continue;
+          }
+        }
+        wrongNorm.add(i - 1); // huruf ayat tidak terdengar
+        i--;
+      }
+    }
+
+    // Petakan ke teks asli, per kata.
+    final result = <int>{};
+    var k = 0; // indeks huruf ternormalisasi
+    var ws = 0;
+    while (ws < text.length) {
+      var we = text.indexOf(' ', ws);
+      if (we < 0) we = text.length;
+      final letters = <int>[];
+      while (k < map.length && map[k] < we) {
+        letters.add(k);
+        k++;
+      }
+      final bad = letters.where(wrongNorm.contains).toList();
+      if (letters.isNotEmpty && bad.length * 2 >= letters.length) {
+        for (var c = ws; c < we; c++) {
+          result.add(c);
+        }
+      } else {
+        for (final b in bad) {
+          var c = map[b];
+          result.add(c);
+          c++;
+          while (c < we && isMark(text.codeUnitAt(c))) {
+            result.add(c);
+            c++;
+          }
+        }
+      }
+      ws = we + 1;
+    }
+    return result;
   }
 
   /// Jarak edit antara seluruh [a] dan setiap awalan [b].
@@ -277,7 +384,8 @@ class ArabicMatcher {
         slack = 6;
         continue;
       }
-      result.add(AyahVerdict(a, Verdict.wrong, best.$1));
+      result.add(AyahVerdict(a, Verdict.wrong, best.$1,
+          wrongChars(a.text, heard, pos, slack, best.$2)));
       final l = candidates(a).first.length;
       if (i + 1 < ayahs.length) {
         final next = ayahs[i + 1];
