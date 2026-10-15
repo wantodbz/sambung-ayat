@@ -2,19 +2,26 @@ import 'package:flutter/material.dart';
 
 import 'data/quran.dart';
 import 'screens/home_screen.dart';
+import 'services/parent_report.dart';
 import 'services/settings.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Future.wait([QuranData.load(), Settings.instance.load()]);
+  await Future.wait([
+    QuranData.load(),
+    Settings.instance.load(),
+    ParentReport.instance.load(),
+  ]);
   runApp(const SambungAyatApp());
 }
 
 class AppColors {
   static const green = Color(0xFF0E5C46);
   static const greenDark = Color(0xFF083D2E);
-  static const gold = Color(0xFFD6AF5C);
-  static const cream = Color(0xFFFAF7EE);
+  static const orange = Color(0xFFF28C28);
+  static const orangeDark = Color(0xFFB85C0A);
+  static const orangeSoft = Color(0xFFFDE7D2);
+  static const cream = Color(0xFFF5FAF6);
   static const red = Color(0xFFB3261E);
 }
 
@@ -26,7 +33,7 @@ class SambungAyatApp extends StatelessWidget {
     final scheme = ColorScheme.fromSeed(
       seedColor: AppColors.green,
       primary: AppColors.green,
-      secondary: AppColors.gold,
+      secondary: AppColors.orange,
       surface: AppColors.cream,
     );
     return MaterialApp(

@@ -4,6 +4,7 @@ import '../data/quran.dart';
 import '../main.dart';
 import '../services/audio_store.dart';
 import '../services/settings.dart';
+import 'murajaah_screen.dart';
 import 'session_controller.dart';
 import 'session_screen.dart';
 
@@ -26,7 +27,7 @@ class RangeScreen extends StatelessWidget {
           bottom: const TabBar(
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white70,
-            indicatorColor: AppColors.gold,
+            indicatorColor: AppColors.orange,
             tabs: [Tab(text: 'Per Surat'), Tab(text: 'Per Juz')],
           ),
         ),
@@ -80,17 +81,26 @@ class RangeScreen extends StatelessWidget {
       final ok = await ensureAudio(context, ayahs);
       if (!ok || !context.mounted) return;
     }
+    final threshold = Settings.instance.strictness.threshold;
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SessionScreen(
-          controller: SessionController(
-            mode: mode,
-            ayahs: ayahs,
-            threshold: Settings.instance.strictness.threshold,
-            title: label,
-          ),
-        ),
+        builder: (_) => mode == SessionMode.murajaah
+            ? MurajaahScreen(
+                controller: MurajaahController(
+                  ayahs: ayahs,
+                  threshold: threshold,
+                  title: label,
+                ),
+              )
+            : SessionScreen(
+                controller: SessionController(
+                  mode: mode,
+                  ayahs: ayahs,
+                  threshold: threshold,
+                  title: label,
+                ),
+              ),
       ),
     );
   }
@@ -214,7 +224,7 @@ class _NumberBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.green.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.gold, width: 1.5),
+        border: Border.all(color: AppColors.orange, width: 1.5),
       ),
       child: Text('$n',
           style: const TextStyle(

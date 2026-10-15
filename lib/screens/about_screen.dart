@@ -20,7 +20,7 @@ class AboutScreen extends StatelessWidget {
                 height: 96,
                 color: AppColors.green,
                 child: const Icon(Icons.menu_book,
-                    color: AppColors.gold, size: 52),
+                    color: AppColors.orange, size: 52),
               ),
             ),
           ),
@@ -28,7 +28,7 @@ class AboutScreen extends StatelessWidget {
           const Text('Sambung Ayat',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-          const Text('Versi 1.0',
+          const Text('Versi 1.1',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.black54)),
           const SizedBox(height: 24),
@@ -96,7 +96,7 @@ class _Section extends StatelessWidget {
       color: Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: AppColors.gold.withValues(alpha: 0.5)),
+        side: BorderSide(color: AppColors.orange.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

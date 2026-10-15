@@ -2,6 +2,16 @@ import 'dart:math' as math;
 
 import '../data/quran.dart';
 
+enum Verdict { correct, wrong, notRead }
+
+/// Hasil koreksi satu ayat pada murajaah.
+class AyahVerdict {
+  final Ayah ayah;
+  final Verdict verdict;
+  final double similarity;
+  const AyahVerdict(this.ayah, this.verdict, this.similarity);
+}
+
 /// Hasil pencocokan bacaan dengan satu ayat.
 class MatchResult {
   /// Kemiripan 0..1.
@@ -198,6 +208,92 @@ class ArabicMatcher {
   static bool _hasMuqattaah(Ayah a) =>
       (a.ayah == 1 && _muqattaahSurahs.contains(a.surah)) ||
       (a.surah == 42 && a.ayah == 2);
+
+  // ---------------------------------------------------------------------------
+  // Koreksi murajaah di akhir: menyelaraskan seluruh bacaan dengan rangkaian ayat.
+
+  /// Selaraskan [expected] dengan [heard] mulai dari [from]; awal boleh bergeser
+  /// sampai [slack] huruf. Biaya: substitusi 2, huruf berlebih 2, huruf ayat
+  /// yang tidak tertangkap 1 (karena celah jeda pengenal suara).
+  /// Mengembalikan (kemiripan, posisi akhir).
+  static (double, int) alignSegment(
+      String expected, String heard, int from, int slack) {
+    final l = expected.length;
+    final end = math.min(heard.length, from + slack + 2 * l + 40);
+    if (from >= end || l == 0) return (0.0, from);
+    final s = heard.substring(from, end);
+    final n = s.length;
+    var prev = List<int>.generate(n + 1, (j) => j <= slack ? 0 : 2 * (j - slack));
+    var cur = List<int>.filled(n + 1, 0);
+    for (var i = 1; i <= l; i++) {
+      cur[0] = i;
+      final ca = expected.codeUnitAt(i - 1);
+      for (var j = 1; j <= n; j++) {
+        var v = prev[j - 1] + (ca == s.codeUnitAt(j - 1) ? 0 : 2);
+        final miss = prev[j] + 1;
+        final extra = cur[j - 1] + 2;
+        if (miss < v) v = miss;
+        if (extra < v) v = extra;
+        cur[j] = v;
+      }
+      final t = prev;
+      prev = cur;
+      cur = t;
+    }
+    var bj = 0;
+    for (var j = 1; j <= n; j++) {
+      if (prev[j] < prev[bj]) bj = j;
+    }
+    return (1 - prev[bj] / (2 * l), from + bj);
+  }
+
+  static (double, int) _bestAlign(Ayah a, String heard, int pos, int slack) {
+    var best = (-1.0, pos);
+    for (final c in candidates(a)) {
+      final r = alignSegment(c, heard, pos, slack);
+      if (r.$1 > best.$1) best = r;
+    }
+    return best;
+  }
+
+  /// Periksa seluruh bacaan [heard] (ternormalisasi) terhadap [ayahs].
+  static List<AyahVerdict> review(
+      List<Ayah> ayahs, String heard, double threshold) {
+    final result = <AyahVerdict>[];
+    if (ayahs.isEmpty) return result;
+    var pos = leadingExtras(heard, candidates(ayahs.first).first);
+    var slack = 25;
+    for (var i = 0; i < ayahs.length; i++) {
+      final a = ayahs[i];
+      if (pos >= heard.length - 1) {
+        result.add(AyahVerdict(a, Verdict.notRead, 0));
+        continue;
+      }
+      if (a.ayah == 1) slack = math.max(slack, 25); // basmalah di awal surat
+      final best = _bestAlign(a, heard, pos, slack);
+      if (best.$1 >= threshold) {
+        result.add(AyahVerdict(a, Verdict.correct, best.$1));
+        pos = best.$2;
+        slack = 6;
+        continue;
+      }
+      result.add(AyahVerdict(a, Verdict.wrong, best.$1));
+      final l = candidates(a).first.length;
+      if (i + 1 < ayahs.length) {
+        final next = ayahs[i + 1];
+        // Apakah ayat ini terlewat (tidak dibaca) atau dibaca tetapi salah?
+        final skipped = _bestAlign(next, heard, pos, slack + l + 20);
+        final readWrong = _bestAlign(next, heard, best.$2, 6);
+        if (skipped.$1 > readWrong.$1 + 0.05) {
+          slack = slack + l + 20;
+        } else {
+          pos = best.$2;
+          slack = 6;
+        }
+      }
+    }
+    return result;
+  }
 
   /// Semua bentuk teks ternormalisasi yang dianggap benar untuk satu ayat.
   static List<String> candidates(Ayah a) {

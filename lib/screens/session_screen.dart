@@ -52,7 +52,7 @@ class _SessionScreenState extends State<SessionScreen> {
           child: LinearProgressIndicator(
             value: c.progress,
             backgroundColor: AppColors.greenDark,
-            color: AppColors.gold,
+            color: AppColors.orange,
             minHeight: 4,
           ),
         ),
@@ -128,13 +128,14 @@ class _SessionScreenState extends State<SessionScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.emoji_events, color: AppColors.gold, size: 48),
+        icon: const Icon(Icons.emoji_events, color: AppColors.orange, size: 48),
         title: const Text('Alhamdulillah, selesai'),
         content: Text(
           'Ayat yang Anda baca: ${c.userAyahs}\n'
           'Ayat dilewati: ${c.skipped}\n'
           'Jumlah kesalahan: ${c.totalErrors}\n\n'
-          '${c.totalErrors == 0 && c.skipped == 0 ? 'Masya Allah, tanpa kesalahan!' : 'Terus murajaah, semoga Allah mudahkan. ($correctFirstTry ayat tuntas)'}',
+          '${c.totalErrors == 0 && c.skipped == 0 ? 'Masya Allah, tanpa kesalahan!' : 'Terus murajaah, semoga Allah mudahkan. ($correctFirstTry ayat tuntas)'}'
+          '${c.recordedSurahs.isEmpty ? '' : '\n\nTercatat di laporan: ${c.recordedSurahs.map((s) => QuranData.instance.surah(s).latin).join(', ')}'}',
         ),
         actions: [
           FilledButton(
@@ -157,14 +158,14 @@ class _StatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (IconData icon, Color color) = switch (c.phase) {
-      Phase.playing => (Icons.volume_up_rounded, AppColors.gold),
+      Phase.playing => (Icons.volume_up_rounded, AppColors.orange),
       Phase.listening => (
           c.micActive ? Icons.mic_rounded : Icons.mic_none_rounded,
           AppColors.green
         ),
       Phase.correct => (Icons.check_circle_rounded, AppColors.green),
       Phase.wrong => (Icons.replay_circle_filled_rounded, AppColors.red),
-      Phase.finished => (Icons.emoji_events_rounded, AppColors.gold),
+      Phase.finished => (Icons.emoji_events_rounded, AppColors.orange),
       Phase.error => (Icons.error_outline_rounded, AppColors.red),
       Phase.preparing => (Icons.hourglass_top_rounded, Colors.black38),
     };

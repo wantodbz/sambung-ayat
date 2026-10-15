@@ -8,6 +8,7 @@ import 'package:just_audio/just_audio.dart';
 import '../data/quran.dart';
 import '../services/audio_store.dart';
 import '../services/matcher.dart';
+import '../services/parent_report.dart';
 import '../services/recognizer.dart';
 
 enum SessionMode { sambungAyat, murajaah }
@@ -43,6 +44,11 @@ class SessionController extends ChangeNotifier {
   int totalErrors = 0;
   int skipped = 0;
   int userAyahs = 0; // jumlah ayat yang menjadi giliran pengguna
+  List<int> recordedSurahs = []; // surat yang tercatat di laporan orang tua
+
+  final Map<String, int> _wrongByAyah = {};
+  final Set<String> _skippedAyah = {};
+  static String _key(Ayah a) => '${a.surah}:${a.ayah}';
 
   bool _disposed = false;
   bool _busy = false;
@@ -295,6 +301,7 @@ class SessionController extends ChangeNotifier {
     final a = current!;
     failCount++;
     totalErrors++;
+    _wrongByAyah.update(_key(a), (v) => v + 1, ifAbsent: () => 1);
     phase = Phase.wrong;
     message = 'Bacaan ayat ${a.ayah} belum tepat. Silakan ulangi ayat ini.';
     HapticFeedback.heavyImpact();
@@ -321,6 +328,7 @@ class SessionController extends ChangeNotifier {
     if (current == null) return;
     skipped++;
     failCount = 0;
+    _skippedAyah.add(_key(current!));
     await _rec.stop();
     _resetHeard(all: true);
     index++;
@@ -336,6 +344,12 @@ class SessionController extends ChangeNotifier {
   Future<void> _finish() async {
     index = ayahs.length;
     await _rec.stop();
+    recordedSurahs = await ParentReport.instance.recordSession(
+      ayahs: ayahs,
+      mode: isSambung ? 'Sambung Ayat' : 'Murajaah',
+      failed: (a) => _skippedAyah.contains(_key(a)),
+      errorsOf: (a) => _wrongByAyah[_key(a)] ?? 0,
+    );
     phase = Phase.finished;
     message = 'Alhamdulillah, sesi selesai.';
     _notify();
