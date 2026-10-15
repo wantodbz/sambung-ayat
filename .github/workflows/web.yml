@@ -37,6 +37,20 @@ jobs:
           bash tool/build_wasm.sh 2> wasm.log || { echo "::error title=WASM gagal::$(grep -E 'error' wasm.log | head -20 | cut -c1-300 | sed ':a;N;$!ba;s/\n/%0A/g')"; exit 1; }
           ls -la web/whisper
 
+      - name: Uji mesin WASM (Al-Ikhlas)
+        continue-on-error: true
+        run: |
+          source /tmp/emsdk/emsdk_env.sh > /dev/null
+          bash tool/build_wasm.sh node > /dev/null 2>&1
+          sudo apt-get install -y -qq ffmpeg > /dev/null
+          list=""
+          for a in 001 002 003 004; do curl -sfL -o 112$a.mp3 https://everyayah.com/data/Ayman_Sowaid_64kbps/112$a.mp3; list="$list|112$a.mp3"; done
+          ffmpeg -loglevel error -i "concat:${list#|}" -ar 16000 -ac 1 -c:a pcm_s16le ikhlas.wav
+          for m in tiny base; do
+            curl -sfL -o m-$m.bin https://github.com/wantodbz/sambung-ayat/releases/download/model-v1/ggml-quran-$m.bin
+            node tool/wasm_test.js /tmp/qw_node/qw.js m-$m.bin ikhlas.wav $m
+          done
+
       - name: Bangun web
         run: |
           set +e
