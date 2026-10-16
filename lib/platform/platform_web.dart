@@ -194,6 +194,7 @@ class _WhisperSpeech extends SpeechEngine {
     }
     final thr = (_floor + 0.15).clamp(0.3, 0.8);
     if (lv > thr) {
+      onSound?.call();
       _loudTicks++;
       _quietTicks = 0;
       if (_loudTicks >= 3) {
@@ -368,6 +369,9 @@ class _HybridSpeech extends SpeechEngine {
       };
       e.onActivity = () {
         if (identical(e, _active)) onActivity?.call();
+      };
+      e.onSound = () {
+        if (identical(e, _active)) onSound?.call();
       };
     }
     _safari.onUnavailable = _fallback;

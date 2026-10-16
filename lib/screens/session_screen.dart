@@ -323,12 +323,6 @@ class _StatusCard extends StatelessWidget {
                 color: AppColors.green,
                 fontWeight: FontWeight.w600),
           ),
-          const SizedBox(height: 6),
-          const Text(
-            'Bila sudah selesai tetapi belum lanjut, ketuk "Selesai membaca".',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.black45),
-          ),
         ],
       ],
     );

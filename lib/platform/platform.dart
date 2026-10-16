@@ -31,6 +31,10 @@ abstract class SpeechEngine {
   /// Dipanggil saat suara bacaan mulai terdengar (menghentikan hitung mundur).
   void Function()? onActivity;
 
+  /// Dipanggil berkala selama terdengar suara (tingkat suara mikrofon);
+  /// dipakai untuk mengetahui kapan pengguna berhenti membaca.
+  void Function()? onSound;
+
   Future<bool> init();
   Future<void> start();
   Future<void> stop();

@@ -20,6 +20,9 @@ class Recognizer extends SpeechEngine {
   /// Nomor sesi naik setiap kali pengenal suara dimulai ulang setelah jeda.
   int _session = 0;
 
+  /// Tingkat suara latar terendah yang pernah terdengar (rmsdB Android).
+  double _floor = 100;
+
   bool _wanted = false; // apakah sesi ingin terus mendengar
   bool _restartScheduled = false;
   int _generation = 0;
@@ -86,6 +89,12 @@ class Recognizer extends SpeechEngine {
         onResult: (SpeechRecognitionResult r) {
           if (gen != _generation || !_wanted) return;
           onResult?.call(r.recognizedWords, r.finalResult, session);
+        },
+        onSoundLevelChange: (double level) {
+          if (gen != _generation || !_wanted) return;
+          // Tingkat suara relatif terhadap suara latar paling rendah.
+          if (level < _floor) _floor = level;
+          if (level > _floor + 3.5) onSound?.call();
         },
         localeId: _localeId,
         listenFor: const Duration(minutes: 2),

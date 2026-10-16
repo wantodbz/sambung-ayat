@@ -22,8 +22,9 @@ enum Phase { preparing, playing, listening, correct, wrong, finished, error }
 /// koreksinya ditampilkan di akhir. Pada giliran pengguna berjalan hitung
 /// mundur [waitSeconds] detik sampai suara bacaan pertama terdengar; bila
 /// habis sebelum ada suara, ayat dicatat tidak terbaca. Setelah suara
-/// terdengar, tidak ada batas waktu (giliran berakhir saat bacaan dinilai
-/// atau tombol "Selesai membaca" diketuk).
+/// terdengar, hitung mundur hilang; bila bacaan belum dinilai benar dan
+/// pengguna diam [quietSeconds] detik (tanpa ditampilkan), bacaan langsung
+/// dinilai (salah/tidak selesai) dan sesi lanjut ke ayat berikutnya.
 ///
 /// (Menu Murajaah memakai MurajaahController tersendiri.)
 class SessionController extends ChangeNotifier {
@@ -35,6 +36,7 @@ class SessionController extends ChangeNotifier {
     SpeechEngine? engine,
     MurottalPlayer? player,
     this.waitSeconds = 15,
+    this.quietSeconds = 3,
   })  : _engine = engine,
         _player = player;
 
@@ -45,6 +47,9 @@ class SessionController extends ChangeNotifier {
 
   /// Batas menunggu sebelum suara bacaan pertama terdengar (detik).
   final int waitSeconds;
+
+  /// Lama diam setelah membaca sebelum lanjut otomatis (detik, tidak tampil).
+  final int quietSeconds;
 
   final SpeechEngine? _engine;
   SpeechEngine get _rec => _engine ?? speechEngine;
@@ -69,7 +74,9 @@ class SessionController extends ChangeNotifier {
   /// Suara bacaan sudah terdengar pada giliran ini (hitung mundur hilang).
   bool voiceHeard = false;
   Timer? _countdownTimer;
-  int _silentTicks = 0;
+  int _silentTicks = 0; // sebelum ada suara (hitung mundur 15 detik)
+  int _quietTicks = 0; // diam setelah ada suara (3 detik, tidak tampil)
+  String _lastPartialSeen = '';
   static const int _ticksPerSecond = 4;
 
   /// Hasil tiap ayat yang menjadi giliran pengguna, berurutan.
@@ -128,6 +135,7 @@ class SessionController extends ChangeNotifier {
       _notify();
     };
     rec.onActivity = _markVoice;
+    rec.onSound = _noteSound;
     if (isSambung) _player ??= createMurottalPlayer();
     phase = Phase.preparing;
     message = 'Menyiapkan…';
@@ -262,6 +270,7 @@ class SessionController extends ChangeNotifier {
   }
 
   void _resetHeard() {
+    _lastPartialSeen = '';
     _finalText = '';
     _partialText = '';
     _finalRaw = '';
@@ -275,10 +284,23 @@ class SessionController extends ChangeNotifier {
   void _armCountdown() {
     _countdownTimer?.cancel();
     _silentTicks = 0;
+    _quietTicks = 0;
     countdown = waitSeconds;
     _countdownTimer = Timer.periodic(
         const Duration(milliseconds: 1000 ~/ _ticksPerSecond), (_) {
-      if (_disposed || phase != Phase.listening || voiceHeard) return;
+      if (_disposed || phase != Phase.listening) return;
+      if (voiceHeard) {
+        // Setelah ada suara: hitung diam (tidak ditampilkan).
+        if (processing) {
+          _quietTicks = 0; // sedang diperiksa: jangan dihitung
+          return;
+        }
+        _quietTicks++;
+        if (_quietTicks >= quietSeconds * _ticksPerSecond) {
+          _onQuietAfterSpeech();
+        }
+        return;
+      }
       if (processing) {
         _silentTicks = 0; // sedang diperiksa: jangan dihitung
       } else {
@@ -299,12 +321,31 @@ class SessionController extends ChangeNotifier {
     _countdownTimer = null;
   }
 
-  /// Suara bacaan pertama terdengar: hitung mundur dihentikan dan disembunyikan.
+  /// Suara bacaan pertama terdengar: hitung mundur disembunyikan; mulai
+  /// sekarang yang dihitung adalah lama diam (tanpa tampilan).
   void _markVoice() {
     if (_disposed || voiceHeard || phase != Phase.listening) return;
     voiceHeard = true;
-    _stopCountdown();
+    _quietTicks = 0;
     _notify();
+  }
+
+  /// Masih terdengar suara bacaan: hitungan diam dimulai lagi.
+  void _noteSound() {
+    if (voiceHeard) _quietTicks = 0;
+  }
+
+  /// Sudah membaca lalu diam [quietSeconds] detik tanpa dinilai benar:
+  /// nilai sekarang (salah/tidak selesai) lalu lanjut.
+  void _onQuietAfterSpeech() {
+    _stopCountdown();
+    final a = current;
+    if (a == null) return;
+    if (_currentHeard().isEmpty) {
+      _recordNotRead(a);
+    } else {
+      _evaluate(isFinal: true, force: true);
+    }
   }
 
   /// Waktu tunggu habis sebelum ada suara bacaan.
@@ -337,8 +378,15 @@ class SessionController extends ChangeNotifier {
       _session = session;
     }
     final norm = ArabicMatcher.normalize(text);
-    // Ada bacaan terdengar: hitung mundur dihentikan.
-    if (text.trim().isNotEmpty) _markVoice();
+    // Ada bacaan terdengar: hitung mundur disembunyikan.
+    if (text.trim().isNotEmpty) {
+      _markVoice();
+      // Hasil sementara yang bertambah berarti masih membaca.
+      if (!isFinal && text != _lastPartialSeen) {
+        _lastPartialSeen = text;
+        _quietTicks = 0;
+      }
+    }
     if (isFinal) {
       // Sebagian HP mengirim hasil final kosong/terpotong; pakai yang lebih lengkap.
       final useFinal = norm.length >= _partialText.length * 0.6;
@@ -528,6 +576,7 @@ class SessionController extends ChangeNotifier {
     rec.onListeningChanged = null;
     rec.onProcessingChanged = null;
     rec.onActivity = null;
+    rec.onSound = null;
     rec.stop();
     _player?.dispose();
     super.dispose();

@@ -1,6 +1,7 @@
 // Uji alur Sambung Ayat dengan pengenal suara & pemutar tiruan:
 // bacaan salah/tidak terbaca tetap lanjut, hitung mundur 15 detik hanya
-// sampai suara bacaan terdengar, dan koreksi ditampilkan di akhir.
+// sampai suara bacaan terdengar, diam 3 detik setelah membaca langsung
+// lanjut, dan koreksi ditampilkan di akhir.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -122,7 +123,7 @@ void main() {
     c.dispose();
   });
 
-  testWidgets('hitung mundur hilang setelah suara terdengar; semua benar',
+  testWidgets('setelah membaca, diam 3 detik langsung lanjut (tanpa tampilan)',
       (tester) async {
     final e = FakeEngine();
     final p = FakePlayer();
@@ -132,31 +133,59 @@ void main() {
     expect(c.current!.ayah, 2);
     expect(c.voiceHeard, isFalse);
 
-    // 10 detik diam, lalu bacaan mulai terdengar (hasil sementara).
-    await tester.pump(const Duration(seconds: 10));
-    expect(c.countdown, lessThanOrEqualTo(6));
-    e.say('الله', isFinal: false);
-    await tester.pump(const Duration(milliseconds: 300));
+    // Membaca terus-menerus 8 detik (hasil sementara berubah tiap detik):
+    // tidak terpotong.
+    for (var i = 0; i < 8; i++) {
+      e.say(i.isEven ? 'الله' : 'اللهُ', isFinal: false);
+      await tester.pump(const Duration(seconds: 1));
+    }
     expect(c.voiceHeard, isTrue);
+    expect(c.phase, Phase.listening);
 
-    // Setelah ada suara tidak ada batas waktu: 60 detik tetap menunggu.
-    await tester.pump(const Duration(seconds: 60));
+    // Masih bersuara (mis. mad panjang) tanpa kata baru 5 detik: tidak terpotong.
+    for (var i = 0; i < 5; i++) {
+      e.onSound?.call();
+      await tester.pump(const Duration(seconds: 1));
+    }
     expect(c.phase, Phase.listening);
     expect(c.verdicts, isEmpty);
 
-    e.say('الله الصمد');
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(c.verdicts.last.verdict, Verdict.correct);
-
-    // Giliran berikutnya: hitung mundur muncul lagi dari awal.
-    await tester.pump(const Duration(seconds: 4));
+    // Berhenti (bacaan belum selesai): 2 detik setelah suara terakhir
+    // masih menunggu…
+    await tester.pump(const Duration(seconds: 1));
     expect(c.phase, Phase.listening);
+    // …3 detik diam → dicatat salah dan langsung lanjut.
+    await tester.pump(const Duration(milliseconds: 1500));
+    expect(c.verdicts.single.verdict, Verdict.wrong);
+    await tester.pump(const Duration(seconds: 2));
+    expect(c.phase, Phase.playing);
+    expect(p.played.last, '112:3');
+
+    await tester.pump(const Duration(seconds: 3));
     expect(c.current!.ayah, 4);
-    expect(c.voiceHeard, isFalse);
+    e.say('ولم يكن له كفوا أحد');
+    await tester.pump(const Duration(seconds: 3));
+    expect(c.phase, Phase.finished);
+    expect(c.verdicts.map((v) => v.verdict).toList(),
+        [Verdict.wrong, Verdict.correct]);
+    expect(c.recordedSurahs, isEmpty);
+    c.dispose();
+  });
+
+  testWidgets('semua benar langsung lanjut dan tercatat di laporan',
+      (tester) async {
+    final e = FakeEngine();
+    final p = FakePlayer();
+    final c = makeController(e, p);
+    unawaited(c.start());
+    await tester.pump(const Duration(seconds: 5));
+    e.say('الله الصمد');
+    await tester.pump(const Duration(seconds: 4));
+    expect(c.current!.ayah, 4);
+    expect(c.voiceHeard, isFalse); // giliran baru: hitung mundur dari awal
     expect(c.countdown, greaterThanOrEqualTo(13));
     e.say('ولم يكن له كفوا أحد');
     await tester.pump(const Duration(seconds: 3));
-
     expect(c.phase, Phase.finished);
     expect(c.mistakes, isEmpty);
     expect(c.correctCount, 2);
@@ -192,11 +221,11 @@ void main() {
     expect(find.byKey(const Key('countdown')), findsNothing);
     expect(find.text('Mendengarkan bacaan…'), findsOneWidget);
 
-    // Berhenti di tengah ayat: tetap menunggu sampai "Selesai membaca".
-    await tester.pump(const Duration(seconds: 30));
+    // Berhenti di tengah ayat: 3 detik diam → otomatis lanjut (selesai).
+    await tester.pump(const Duration(seconds: 2));
     expect(c.phase, Phase.listening);
-    await tester.tap(find.text('Selesai membaca'));
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.pump(const Duration(seconds: 2));
     await tester.pump();
     expect(c.phase, Phase.finished);
     expect(c.verdicts.last.verdict, Verdict.wrong);
