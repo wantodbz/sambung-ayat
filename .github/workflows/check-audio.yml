@@ -6,7 +6,16 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        folder:
+          - Ayman_Sowaid_64kbps
+          - Husary_64kbps
+          - Muhammad_Ayyoub_64kbps
+          - Hudhaify_64kbps
+          - Abdullah_Basfar_64kbps
     steps:
       - uses: actions/checkout@v5
       - name: Periksa kelengkapan audio
-        run: python3 tool/check_audio.py
+        run: python3 tool/check_audio.py ${{ matrix.folder }}

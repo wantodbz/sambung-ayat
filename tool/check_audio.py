@@ -5,7 +5,8 @@ import sys
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-BASE = "https://everyayah.com/data/Ayman_Sowaid_64kbps/"
+FOLDER = sys.argv[1] if len(sys.argv) > 1 else "Ayman_Sowaid_64kbps"
+BASE = f"https://everyayah.com/data/{FOLDER}/"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 q = json.load(open(os.path.join(ROOT, "assets", "quran.json"), encoding="utf-8"))
 names = [f"{s:03d}{a:03d}.mp3"
@@ -32,12 +33,12 @@ with ThreadPoolExecutor(32) as ex:
 
 missing = [n for n, ok in results if ok is False]
 unknown = [n for n, ok in results if ok is None]
-summary = (f"Total ayat: {len(names)} | tersedia: {len(names) - len(missing) - len(unknown)} "
+summary = (f"{FOLDER} :: Total ayat: {len(names)} | tersedia: {len(names) - len(missing) - len(unknown)} "
       f"| tidak ada: {len(missing)} | tidak pasti: {len(unknown)}")
 print(summary)
-print("::notice title=Audio::" + summary)
+print(f"::notice title=Audio {FOLDER}::" + summary)
 if missing:
-    print("::warning title=Tidak ada::" + " ".join(missing[:200]))
+    print(f"::warning title=Tidak ada di {FOLDER}::" + " ".join(missing[:200]))
 if missing:
     print("Tidak ada:", " ".join(missing[:300]))
 if unknown:
