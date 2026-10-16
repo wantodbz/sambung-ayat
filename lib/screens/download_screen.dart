@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/quran.dart';
 import '../main.dart';
 import '../services/audio_store.dart';
+import '../services/reciters.dart';
 import '../services/settings.dart';
 import '../widgets/reciter_picker.dart';
 import 'range_screen.dart';
