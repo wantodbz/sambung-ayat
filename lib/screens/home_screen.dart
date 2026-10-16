@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../platform/platform.dart';
+import '../services/reciters.dart';
 import '../services/settings.dart';
+import '../widgets/reciter_picker.dart';
 import '../widgets/model_picker.dart';
 import 'about_screen.dart';
 import 'download_screen.dart';
@@ -53,10 +55,13 @@ class HomeScreen extends StatelessWidget {
                   color: AppColors.greenDark),
             ),
             const SizedBox(height: 4),
-            const Text(
-              'Latihan hafalan bersama murottal\nSyaikh Aiman Rusydi Suwaid',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 15, color: Colors.black54),
+            ValueListenableBuilder<Reciter>(
+              valueListenable: Settings.instance.reciterListenable,
+              builder: (_, r, __) => Text(
+                'Latihan hafalan bersama murottal\n${r.label}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, color: Colors.black54),
+              ),
             ),
             const SizedBox(height: 28),
             _MenuCard(
@@ -147,6 +152,19 @@ class HomeScreen extends StatelessWidget {
                         setState(() {});
                       },
                     ),
+                  const SizedBox(height: 12),
+                  const Text('Qari murottal',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(
+                      streamsAudio
+                          ? 'Murottal diputar langsung dari internet.'
+                          : 'Audio tiap qari disimpan terpisah. Ganti qari kapan '
+                              'saja; audio qari lain tetap tersimpan sampai dihapus.',
+                      style: const TextStyle(color: Colors.black54)),
+                  const SizedBox(height: 10),
+                  const ReciterPicker(),
                   const SizedBox(height: 12),
                   const Text('Model koreksi Murajaah',
                       style:

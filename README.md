@@ -1,10 +1,10 @@
 # Sambung Ayat
 
-Aplikasi Android untuk latihan hafalan Al-Qur'an dengan murottal Syaikh Aiman Rusydi Suwaid.
+Aplikasi Android untuk latihan hafalan Al-Qur'an dengan murottal pilihan (Syaikh Aiman Rusydi Suwaid, Syaikh Mahmud Khalil Al-Hushari, Syaikh Muhammad Ayyub, Syaikh Ali Al-Hudzaifi, Syaikh Abdullah Ali Bashfar).
 
-- **Sambung Ayat**: HP membaca ayat ke-1, Anda membaca ayat ke-2, HP ayat ke-3, dan seterusnya. Bacaan Anda dicek; bila salah, Anda diminta mengulang.
-- **Murajaah**: Anda membaca sendiri seluruh ayat; aplikasi hanya mengecek.
-- Cakupan: per surat atau per juz. Audio diunduh per surat sesuai kebutuhan.
+- **Sambung Ayat**: HP membaca ayat ke-1, Anda membaca ayat ke-2, HP ayat ke-3, dan seterusnya. Bacaan yang salah atau tidak terbaca (hitung mundur 15 detik) dicatat dan sesi tetap berlanjut; koreksinya tampil di akhir.
+- **Murajaah**: Anda membaca sendiri seluruh ayat sampai selesai; rekaman diperiksa di HP (tanpa internet) lalu koreksi tampil di akhir.
+- Cakupan: per surat atau per juz. Audio diunduh per surat sesuai kebutuhan, terpisah per qari.
 
 Pembuat: **Abu Syafiq**, Perumahan Ar-Raihaan Blok B7.
 

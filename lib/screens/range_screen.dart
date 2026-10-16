@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/quran.dart';
 import '../main.dart';
 import '../services/audio_store.dart';
+import '../services/reciters.dart';
 import '../services/settings.dart';
 import '../platform/platform.dart';
 import '../services/model_store.dart';
@@ -124,7 +125,8 @@ Future<bool> ensureAudio(BuildContext context, List<Ayah> ayahs) async {
     builder: (ctx) => AlertDialog(
       title: const Text('Unduh audio dulu'),
       content: Text(
-          'Murottal untuk ${missing.length} ayat belum tersimpan di HP. '
+          'Murottal ${Settings.instance.reciter.label} untuk ${missing.length} '
+          'ayat belum tersimpan di HP. '
           'Unduh sekarang? (sekitar ${(missing.length * 0.1).toStringAsFixed(1)} MB, '
           'perlu koneksi internet; cukup sekali)'),
       actions: [

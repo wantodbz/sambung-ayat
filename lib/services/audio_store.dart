@@ -5,51 +5,98 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../data/quran.dart';
+import 'reciters.dart';
+import 'settings.dart';
 
-/// Penyimpanan & pengunduhan murottal Syaikh Aiman Rusydi Suwaid per ayat.
-/// Sumber: EveryAyah.com (64 kbps).
+/// Penyimpanan & pengunduhan murottal per ayat, terpisah per qari.
+/// Sumber: EveryAyah.com (64 kbps). Audio qari yang tidak dipakai tetap
+/// disimpan sampai dihapus pengguna.
 class AudioStore {
   AudioStore._();
   static final AudioStore instance = AudioStore._();
 
-  static const String baseUrl =
-      'https://everyayah.com/data/Ayman_Sowaid_64kbps/';
+  final Map<Reciter, Directory> _dirs = {};
+  final Map<Reciter, Set<String>> _caches = {};
+  bool _oldCleaned = false;
 
-  Directory? _dir;
-  Set<String>? _cache;
+  Reciter _r(Reciter? r) => r ?? Settings.instance.reciter;
 
-  Future<Directory> dir() async {
-    if (_dir != null) return _dir!;
+  Future<Directory> dir([Reciter? reciter]) async {
+    final r = _r(reciter);
+    final cached = _dirs[r];
+    if (cached != null) return cached;
     final docs = await getApplicationDocumentsDirectory();
-    final d = Directory('${docs.path}/ayman_suwaid');
+    final d = Directory('${docs.path}/${r.dirName}');
     if (!await d.exists()) await d.create(recursive: true);
-    // Hapus audio murottal lama (as-Sudais, v1.0–1.1) agar memori HP lega.
-    final old = Directory('${docs.path}/sudais');
-    try {
-      if (await old.exists()) await old.delete(recursive: true);
-    } catch (_) {}
-    _dir = d;
+    if (!_oldCleaned) {
+      _oldCleaned = true;
+      // Hapus audio murottal lama (as-Sudais, v1.0–1.1) agar memori HP lega.
+      final old = Directory('${docs.path}/sudais');
+      try {
+        if (await old.exists()) await old.delete(recursive: true);
+      } catch (_) {}
+    }
+    _dirs[r] = d;
     return d;
   }
 
   static String fileName(int s, int a) =>
       '${s.toString().padLeft(3, '0')}${a.toString().padLeft(3, '0')}.mp3';
 
-  Future<String> path(int s, int a) async =>
-      '${(await dir()).path}/${fileName(s, a)}';
+  Future<String> path(int s, int a, [Reciter? reciter]) async =>
+      '${(await dir(reciter)).path}/${fileName(s, a)}';
 
   /// Daftar nama berkas yang sudah tersimpan.
-  Future<Set<String>> available({bool refresh = false}) async {
-    if (_cache != null && !refresh) return _cache!;
-    final d = await dir();
+  Future<Set<String>> available({bool refresh = false, Reciter? reciter}) async {
+    final r = _r(reciter);
+    final cached = _caches[r];
+    if (cached != null && !refresh) return cached;
+    final d = await dir(r);
     final names = <String>{};
     await for (final e in d.list()) {
       if (e is File && e.path.endsWith('.mp3')) {
         names.add(e.uri.pathSegments.last);
       }
     }
-    _cache = names;
+    _caches[r] = names;
     return names;
+  }
+
+  /// Ringkasan audio tersimpan satu qari: (jumlah surat lengkap, total byte).
+  Future<(int, int)> summary(Reciter reciter) async {
+    final d = await dir(reciter);
+    final perSurah = <int, int>{};
+    var bytes = 0;
+    final names = <String>{};
+    await for (final e in d.list()) {
+      if (e is File && e.path.endsWith('.mp3')) {
+        final name = e.uri.pathSegments.last;
+        names.add(name);
+        bytes += await e.length();
+        final s = int.tryParse(name.substring(0, 3));
+        if (s != null) perSurah[s] = (perSurah[s] ?? 0) + 1;
+      }
+    }
+    _caches[reciter] = names;
+    final q = QuranData.instance;
+    var full = 0;
+    perSurah.forEach((s, n) {
+      if (s >= 1 && s <= 114 && n >= q.surah(s).count) full++;
+    });
+    return (full, bytes);
+  }
+
+  /// Hapus seluruh audio satu qari.
+  Future<void> deleteAll(Reciter reciter) async {
+    final d = await dir(reciter);
+    await for (final e in d.list()) {
+      if (e is File) {
+        try {
+          await e.delete();
+        } catch (_) {}
+      }
+    }
+    _caches[reciter] = <String>{};
   }
 
   /// Berkas yang diperlukan untuk memutar rangkaian ayat (termasuk basmalah).
@@ -64,29 +111,29 @@ class AudioStore {
     return req;
   }
 
-  Future<List<List<int>>> missing(List<List<int>> refs) async {
-    final have = await available();
+  Future<List<List<int>>> missing(List<List<int>> refs,
+      [Reciter? reciter]) async {
+    final have = await available(reciter: reciter);
     return refs.where((r) => !have.contains(fileName(r[0], r[1]))).toList();
   }
 
   /// Jumlah ayat yang sudah diunduh untuk satu surat.
-  Future<int> downloadedCount(int surah) async {
-    final have = await available();
+  Future<int> downloadedCount(int surah, [Reciter? reciter]) async {
+    final have = await available(reciter: reciter);
     final prefix = surah.toString().padLeft(3, '0');
     return have.where((n) => n.startsWith(prefix)).length;
   }
 
-  Future<void> deleteSurah(int surah) async {
-    final d = await dir();
+  Future<void> deleteSurah(int surah, [Reciter? reciter]) async {
+    final d = await dir(reciter);
     final prefix = surah.toString().padLeft(3, '0');
     await for (final e in d.list()) {
       final name = e.uri.pathSegments.last;
       if (e is File && name.startsWith(prefix)) {
-        // Basmalah (001001) tetap dipertahankan kecuali menghapus Al-Fatihah.
         await e.delete();
       }
     }
-    await available(refresh: true);
+    await available(refresh: true, reciter: reciter);
   }
 
   /// Unduh daftar berkas. [onProgress] dipanggil (selesai, total).
@@ -95,14 +142,17 @@ class AudioStore {
     List<List<int>> refs, {
     void Function(int done, int total)? onProgress,
     bool Function()? isCancelled,
+    Reciter? reciter,
   }) async {
-    final todo = await missing(refs);
+    final r = _r(reciter);
+    final todo = await missing(refs, r);
     final total = todo.length;
     var done = 0;
     var failed = 0;
     onProgress?.call(0, total);
     if (total == 0) return;
-    final d = await dir();
+    final d = await dir(r);
+    final cache = _caches[r];
     final client = http.Client();
     var next = 0;
 
@@ -110,24 +160,30 @@ class AudioStore {
       while (true) {
         if (isCancelled?.call() ?? false) return;
         if (next >= todo.length) return;
-        final r = todo[next++];
-        final name = fileName(r[0], r[1]);
+        final ref = todo[next++];
+        final name = fileName(ref[0], ref[1]);
         var ok = false;
-        for (var attempt = 0; attempt < 3 && !ok; attempt++) {
-          try {
-            final res = await client
-                .get(Uri.parse('$baseUrl$name'))
-                .timeout(const Duration(seconds: 60));
-            if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
-              final tmp = File('${d.path}/$name.part');
-              await tmp.writeAsBytes(res.bodyBytes, flush: true);
-              await tmp.rename('${d.path}/$name');
-              _cache?.add(name);
-              ok = true;
+        for (final url in r.urlsFor(name)) {
+          var notFound = false;
+          for (var attempt = 0; attempt < 3 && !ok && !notFound; attempt++) {
+            try {
+              final res = await client
+                  .get(Uri.parse(url))
+                  .timeout(const Duration(seconds: 60));
+              if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
+                final tmp = File('${d.path}/$name.part');
+                await tmp.writeAsBytes(res.bodyBytes, flush: true);
+                await tmp.rename('${d.path}/$name');
+                cache?.add(name);
+                ok = true;
+              } else if (res.statusCode == 404) {
+                notFound = true; // coba folder cadangan
+              }
+            } catch (_) {
+              await Future<void>.delayed(const Duration(seconds: 1));
             }
-          } catch (_) {
-            await Future<void>.delayed(const Duration(seconds: 1));
           }
+          if (ok) break;
         }
         if (!ok) failed++;
         done++;

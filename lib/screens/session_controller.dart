@@ -5,32 +5,47 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../data/quran.dart';
+import '../platform/platform.dart';
 import '../services/matcher.dart';
 import '../services/parent_report.dart';
-import '../platform/platform.dart';
+import '../services/reciters.dart';
+import '../services/settings.dart';
 
 enum SessionMode { sambungAyat, murajaah }
 
 enum Phase { preparing, playing, listening, correct, wrong, finished, error }
 
-/// Mengatur jalannya satu sesi Sambung Ayat atau Murajaah.
+/// Mengatur jalannya satu sesi Sambung Ayat:
+/// HP membaca ayat ke-1, pengguna ayat ke-2, HP ayat ke-3, dan seterusnya.
 ///
-/// Sambung Ayat : HP membaca ayat ke-1, pengguna ayat ke-2, HP ayat ke-3, dst.
-/// Murajaah     : pengguna membaca semua ayat; aplikasi hanya mengecek.
+/// Bacaan yang salah atau tidak terbaca dicatat lalu sesi tetap berlanjut;
+/// koreksinya ditampilkan di akhir. Pada giliran pengguna berjalan hitung
+/// mundur [waitSeconds] detik yang dimulai ulang setiap kali terdengar
+/// bacaan; bila habis, ayat dianggap selesai dibaca (atau tidak terbaca).
+///
+/// (Menu Murajaah memakai MurajaahController tersendiri.)
 class SessionController extends ChangeNotifier {
   SessionController({
     required this.mode,
     required this.ayahs,
     required this.threshold,
     required this.title,
-  });
+    SpeechEngine? engine,
+    MurottalPlayer? player,
+    this.waitSeconds = 15,
+  })  : _engine = engine,
+        _player = player;
 
   final SessionMode mode;
   final List<Ayah> ayahs;
   final double threshold;
   final String title;
 
-  final SpeechEngine _rec = speechEngine;
+  /// Batas menunggu tanpa suara bacaan (detik).
+  final int waitSeconds;
+
+  final SpeechEngine? _engine;
+  SpeechEngine get _rec => _engine ?? speechEngine;
   MurottalPlayer? _player;
 
   /// Versi web: sesi harus dimulai dari ketukan pengguna (aturan iPhone).
@@ -45,25 +60,31 @@ class SessionController extends ChangeNotifier {
   String message = 'Menyiapkan…';
   String heard = '';
   bool micActive = false;
-  int failCount = 0; // percobaan gagal pada ayat saat ini
-  int totalErrors = 0;
-  int skipped = 0;
-  int userAyahs = 0; // jumlah ayat yang menjadi giliran pengguna
-  List<int> recordedSurahs = []; // surat yang tercatat di laporan orang tua
 
-  final Map<String, int> _wrongByAyah = {};
-  final Set<String> _skippedAyah = {};
-  static String _key(Ayah a) => '${a.surah}:${a.ayah}';
+  /// Sisa detik hitung mundur pada giliran pengguna.
+  int countdown = 0;
+  Timer? _countdownTimer;
+  int _silentTicks = 0;
+  static const int _ticksPerSecond = 4;
+
+  /// Hasil tiap ayat yang menjadi giliran pengguna, berurutan.
+  final List<AyahVerdict> verdicts = [];
+
+  /// Surat yang tercatat di laporan orang tua.
+  List<int> recordedSurahs = [];
 
   bool _disposed = false;
   bool _busy = false;
+  int _turn = 0; // naik setiap pergantian giliran; menahan timer usang
 
-  // Teks terdengar (ternormalisasi) dalam satu giliran mendengar.
+  // Teks terdengar (ternormalisasi) dalam satu giliran.
   String _finalText = '';
   String _partialText = '';
   String _finalRaw = '';
   String _partialRaw = '';
-  int _offset = 0;
+  int _session = -1;
+
+  static String _key(Ayah a) => '${a.surah}:${a.ayah}';
 
   Ayah? get current => index < ayahs.length ? ayahs[index] : null;
 
@@ -73,27 +94,41 @@ class SessionController extends ChangeNotifier {
 
   double get progress => ayahs.isEmpty ? 0 : index / ayahs.length;
 
-  bool get canGiveUp => failCount >= 3 && phase != Phase.finished;
+  /// Jumlah ayat yang menjadi giliran pengguna.
+  int get userAyahs =>
+      [for (var i = 0; i < ayahs.length; i++) i].where(isUserTurn).length;
+
+  List<AyahVerdict> get mistakes =>
+      verdicts.where((v) => v.verdict != Verdict.correct).toList();
+
+  int get correctCount =>
+      verdicts.where((v) => v.verdict == Verdict.correct).length;
+
+  Reciter get _reciter => Settings.instance.reciter;
+
+  // ---------------------------------------------------------------------------
+  // Mulai, ulang, galat
 
   Future<void> start() async {
-    userAyahs = [for (var i = 0; i < ayahs.length; i++) i]
-        .where(isUserTurn)
-        .length;
-    _rec.onResult = _onResult;
-    _rec.onFatalError = _fail;
-    _rec.onListeningChanged = (l) {
+    final rec = _rec;
+    rec.onResult = _onResult;
+    rec.onFatalError = _fail;
+    rec.onListeningChanged = (l) {
       micActive = l;
       _notify();
     };
-    _rec.onProcessingChanged = (p) {
+    rec.onProcessingChanged = (p) {
       processing = p;
+      if (p) _silentTicks = 0;
       _notify();
     };
+    rec.onActivity = () => _silentTicks = 0;
     if (isSambung) _player ??= createMurottalPlayer();
     phase = Phase.preparing;
     message = 'Menyiapkan…';
     _notify();
-    final ok = await _rec.init();
+    final ok = await rec.init();
+    if (_disposed) return;
     if (!ok) {
       if (phase != Phase.error) {
         _fail('Pengenal suara tidak tersedia di HP ini. Pastikan aplikasi '
@@ -115,7 +150,19 @@ class SessionController extends ChangeNotifier {
     await prep.catchError((_) {});
   }
 
+  /// Ulangi seluruh sesi dari awal (layar hasil).
+  Future<void> restartSession() async {
+    _turn++;
+    _stopCountdown();
+    index = 0;
+    verdicts.clear();
+    recordedSurahs = [];
+    _resetHeard();
+    await startFromGesture();
+  }
+
   void _fail(String msg) {
+    _stopCountdown();
     phase = Phase.error;
     message = msg;
     _rec.stop();
@@ -127,12 +174,13 @@ class SessionController extends ChangeNotifier {
     if (phase != Phase.error) return;
     // Versi web: ketukan "Coba lagi" juga membuka mikrofon (aturan iPhone).
     final prep = _rec.prepareFromGesture();
-    _resetHeard(all: true);
+    _resetHeard();
     phase = Phase.preparing;
     message = 'Menyiapkan…';
     _notify();
     await prep.catchError((_) {});
     final ok = await _rec.init();
+    if (_disposed) return;
     if (!ok) {
       if (phase != Phase.error) _fail('Pengecek bacaan belum siap.');
       return;
@@ -152,13 +200,13 @@ class SessionController extends ChangeNotifier {
         await _rec.stop();
         if (_needsBasmalah(index)) {
           phase = Phase.playing;
-          message = 'Syaikh Aiman Suwaid membaca basmalah';
+          message = '${_reciter.short} membaca basmalah';
           _notify();
           await _play(1, 1);
           if (_disposed) return;
         }
         phase = Phase.playing;
-        message = 'Syaikh Aiman Suwaid membaca ayat ${a.ayah}';
+        message = '${_reciter.short} membaca ayat ${a.ayah}';
         _notify();
         await _play(a.surah, a.ayah);
         if (_disposed) return;
@@ -172,7 +220,7 @@ class SessionController extends ChangeNotifier {
       // Giliran pengguna.
       if (isSambung && _needsBasmalah(index)) {
         phase = Phase.playing;
-        message = 'Syaikh Aiman Suwaid membaca basmalah';
+        message = '${_reciter.short} membaca basmalah';
         _notify();
         await _play(1, 1);
         if (_disposed) return;
@@ -189,42 +237,80 @@ class SessionController extends ChangeNotifier {
   }
 
   Future<void> _play(int s, int a) async {
-    await _player?.play(s, a);
+    try {
+      await _player?.play(s, a);
+    } catch (_) {
+      // Audio gagal diputar: lanjutkan agar sesi tidak macet.
+    }
   }
 
-  void _beginListening({bool keepLeftover = false}) {
+  void _beginListening() {
     if (_disposed) return;
-    if (!keepLeftover) _resetHeard(all: true);
+    _resetHeard();
     final a = current!;
     phase = Phase.listening;
-    message = isSambung
-        ? 'Giliran Anda: bacalah ayat ${a.ayah}'
-        : 'Bacalah ayat ${a.ayah}';
+    message = 'Giliran Anda: bacalah ayat ${a.ayah}';
+    _armCountdown();
     _notify();
-    if (!keepLeftover || !_rec.isListening) _rec.start();
+    _rec.start();
   }
 
-  void _resetHeard({required bool all}) {
+  void _resetHeard() {
     _finalText = '';
     _partialText = '';
     _finalRaw = '';
     _partialRaw = '';
-    _offset = 0;
     heard = '';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hitung mundur
+
+  void _armCountdown() {
+    _countdownTimer?.cancel();
+    _silentTicks = 0;
+    countdown = waitSeconds;
+    _countdownTimer = Timer.periodic(
+        const Duration(milliseconds: 1000 ~/ _ticksPerSecond), (_) {
+      if (_disposed || phase != Phase.listening) return;
+      if (processing) {
+        _silentTicks = 0; // sedang diperiksa: jangan dihitung
+      } else {
+        _silentTicks++;
+      }
+      final left = waitSeconds - _silentTicks / _ticksPerSecond;
+      final shown = left.ceil().clamp(0, waitSeconds);
+      if (shown != countdown) {
+        countdown = shown;
+        _notify();
+      }
+      if (left <= 0) _onTimeout();
+    });
+  }
+
+  void _stopCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+  }
+
+  /// Waktu tunggu habis tanpa suara bacaan baru.
+  void _onTimeout() {
+    _stopCountdown();
+    final a = current;
+    if (a == null) return;
+    if (_currentHeard().isEmpty) {
+      _recordNotRead(a, timeout: true);
+    } else {
+      _evaluate(isFinal: true, force: true);
+    }
   }
 
   // ---------------------------------------------------------------------------
   // Pengecekan bacaan
 
-  int _session = -1;
-
   void _onResult(String text, bool isFinal, int session) {
-    if (_disposed) return;
-    // Saat jeda singkat setelah "Benar" pada murajaah, bacaan tetap ditampung.
-    if (phase != Phase.listening && !(phase == Phase.correct && !isSambung)) {
-      return;
-    }
-    // Hasil terlambat dari sesi lama (sudah disimpan) diabaikan.
+    if (_disposed || phase != Phase.listening) return;
+    // Hasil terlambat dari sesi dengar lama (sudah disimpan) diabaikan.
     if (session < _session) return;
     // Sesi dengar baru tanpa hasil final sesi lama: simpan hasil sementaranya.
     if (session != _session) {
@@ -237,6 +323,8 @@ class SessionController extends ChangeNotifier {
       _session = session;
     }
     final norm = ArabicMatcher.normalize(text);
+    // Ada bacaan terdengar: hitung mundur dimulai lagi dari awal.
+    if (norm.isNotEmpty) _silentTicks = 0;
     if (isFinal) {
       // Sebagian HP mengirim hasil final kosong/terpotong; pakai yang lebih lengkap.
       final useFinal = norm.length >= _partialText.length * 0.6;
@@ -251,14 +339,12 @@ class SessionController extends ChangeNotifier {
     final raw = '$_finalRaw $_partialRaw'.trim();
     heard = raw.length > 120 ? '…${raw.substring(raw.length - 120)}' : raw;
     _notify();
-    if (phase == Phase.listening) {
-      final force = isFinal && _forceNext;
-      if (isFinal) _forceNext = false;
-      _evaluate(isFinal: isFinal, force: force);
-    }
+    final force = isFinal && _forceNext;
+    if (isFinal) _forceNext = false;
+    _evaluate(isFinal: isFinal, force: force);
   }
 
-  /// Dipanggil tombol "Selesai membaca".
+  /// Tombol "Selesai membaca": nilai bacaan sekarang juga.
   void finishReading() {
     if (phase != Phase.listening) return;
     if (_rec.supportsFlush && _rec.isListening) {
@@ -270,15 +356,22 @@ class SessionController extends ChangeNotifier {
     _evaluate(isFinal: true, force: true);
   }
 
+  /// Bacaan terdengar (ternormalisasi) tanpa ta'awudz/basmalah di awal.
+  String _currentHeard() {
+    final a = current;
+    if (a == null) return '';
+    final cur = _finalText + _partialText;
+    final lead =
+        ArabicMatcher.leadingExtras(cur, ArabicMatcher.candidates(a).first);
+    return cur.substring(lead);
+  }
+
   void _evaluate({required bool isFinal, bool force = false}) {
+    if (phase != Phase.listening) return;
     final a = current;
     if (a == null) return;
-    final full = _finalText + _partialText;
-    final start = math.min(_offset, full.length);
-    var cur = full.substring(start);
+    final cur = _currentHeard();
     final candidates = ArabicMatcher.candidates(a);
-    final lead = ArabicMatcher.leadingExtras(cur, candidates.first);
-    cur = cur.substring(lead);
 
     var best = MatchResult.empty;
     var minLen = 1 << 30;
@@ -292,15 +385,16 @@ class SessionController extends ChangeNotifier {
 
     final passed = best.similarity >= threshold && (isFinal || best.tailOk);
     if (passed) {
-      _offset = start + lead + best.consumed;
-      _onCorrect();
+      _onCorrect(a, best.similarity);
       return;
     }
     if (!isFinal) return;
 
-    final prefixSim = candidates
-        .map((c) => ArabicMatcher.prefixSimilarity(c, cur))
-        .reduce(math.max);
+    final prefixSim = cur.isEmpty
+        ? 1.0
+        : candidates
+            .map((c) => ArabicMatcher.prefixSimilarity(c, cur))
+            .reduce(math.max);
     final finishedReading = cur.length >= (minLen * 0.85).floor();
     final wrongAyah = cur.length >= 12 &&
         prefixSim < threshold - 0.2 &&
@@ -308,100 +402,101 @@ class SessionController extends ChangeNotifier {
     final overshoot = cur.length > maxLen * 1.6 + 10;
 
     if (force || finishedReading || wrongAyah || overshoot) {
-      if (force && cur.isEmpty) {
-        message = 'Belum ada bacaan yang terdengar. Silakan mulai membaca.';
-        _notify();
+      if (cur.isEmpty) {
+        // "Selesai membaca" diketuk tanpa bacaan apa pun.
+        _recordNotRead(a);
         return;
       }
-      _onWrong();
+      _onWrong(a, cur, best.similarity);
     }
     // Selain itu: tunggu lanjutan bacaan (pengenal suara dimulai ulang otomatis).
   }
 
-  void _onCorrect() {
-    final a = current!;
-    failCount = 0;
+  void _onCorrect(Ayah a, double similarity) {
+    verdicts.add(AyahVerdict(a, Verdict.correct, similarity));
     phase = Phase.correct;
     message = 'Benar — ayat ${a.ayah}. Barakallahu fiik.';
-    HapticFeedback.lightImpact();
-    _notify();
-    index++;
-    if (isSambung) {
-      _rec.stop();
-      _resetHeard(all: true);
-      Timer(const Duration(milliseconds: 700), () {
-        if (!_disposed) _advance();
-      });
-    } else {
-      if (index >= ayahs.length) {
-        _finish();
-        return;
-      }
-      // Murajaah: tetap mendengar, sisa bacaan dipakai untuk ayat berikutnya.
-      Timer(const Duration(milliseconds: 500), () {
-        if (_disposed || phase != Phase.correct) return;
-        _beginListening(keepLeftover: true);
-        _evaluate(isFinal: false);
-      });
-    }
+    _haptic(strong: false);
+    _next(const Duration(milliseconds: 700));
   }
 
-  void _onWrong() {
-    final a = current!;
-    failCount++;
-    totalErrors++;
-    _wrongByAyah.update(_key(a), (v) => v + 1, ifAbsent: () => 1);
+  void _onWrong(Ayah a, String cur, double similarity) {
+    Set<int> wrong = const {};
+    try {
+      wrong = ArabicMatcher.wrongChars(a.text, cur, 0, 6, cur.length);
+    } catch (_) {}
+    verdicts.add(AyahVerdict(a, Verdict.wrong, similarity, wrong));
     phase = Phase.wrong;
-    message = 'Bacaan ayat ${a.ayah} belum tepat. Silakan ulangi ayat ini.';
-    HapticFeedback.heavyImpact();
-    SystemSound.play(SystemSoundType.alert);
+    message = 'Ayat ${a.ayah} dicatat untuk dikoreksi di akhir. Lanjut…';
+    _haptic(strong: true);
+    _next(const Duration(milliseconds: 1500));
+  }
+
+  void _recordNotRead(Ayah a, {bool timeout = false}) {
+    verdicts.add(AyahVerdict(a, Verdict.notRead, 0));
+    phase = Phase.wrong;
+    message = timeout
+        ? 'Waktu habis — ayat ${a.ayah} dicatat tidak terbaca. Lanjut…'
+        : 'Ayat ${a.ayah} dicatat tidak terbaca. Lanjut…';
+    _haptic(strong: true);
+    _next(const Duration(milliseconds: 1500));
+  }
+
+  /// Tutup giliran ini lalu lanjut ke ayat berikutnya setelah [delay].
+  void _next(Duration delay) {
+    _stopCountdown();
     _rec.stop();
-    _resetHeard(all: true);
+    _resetHeard();
     _notify();
-    Timer(const Duration(milliseconds: 2500), () {
-      if (_disposed || phase != Phase.wrong) return;
-      _beginListening();
+    index++;
+    final turn = ++_turn;
+    Timer(delay, () {
+      if (_disposed || turn != _turn) return;
+      _advance();
     });
   }
 
-  /// Ulangi ayat saat ini dari awal (tombol "Ulangi").
+  /// Ulangi bacaan ayat saat ini dari awal (tombol "Ulangi"), sebelum dinilai.
   void restartAyah() {
-    if (phase != Phase.listening && phase != Phase.wrong) return;
+    if (phase != Phase.listening) return;
     _rec.stop();
-    _resetHeard(all: true);
     _beginListening();
   }
 
-  /// Lewati ayat saat ini (muncul setelah 3x gagal).
-  Future<void> skip() async {
-    if (current == null) return;
-    skipped++;
-    failCount = 0;
-    _skippedAyah.add(_key(current!));
-    await _rec.stop();
-    _resetHeard(all: true);
-    index++;
-    if (isSambung) {
-      await _advance();
-    } else if (index >= ayahs.length) {
-      await _finish();
-    } else {
-      _beginListening();
-    }
-  }
-
   Future<void> _finish() async {
+    _stopCountdown();
     index = ayahs.length;
     await _rec.stop();
-    recordedSurahs = await ParentReport.instance.recordSession(
-      ayahs: ayahs,
-      mode: isSambung ? 'Sambung Ayat' : 'Murajaah',
-      failed: (a) => _skippedAyah.contains(_key(a)),
-      errorsOf: (a) => _wrongByAyah[_key(a)] ?? 0,
-    );
+    final failed = {
+      for (final v in verdicts)
+        if (v.verdict != Verdict.correct) _key(v.ayah)
+    };
+    try {
+      recordedSurahs = await ParentReport.instance.recordSession(
+        ayahs: ayahs,
+        mode: isSambung ? 'Sambung Ayat' : 'Murajaah',
+        failed: (a) => failed.contains(_key(a)),
+        errorsOf: (_) => 0,
+      );
+    } catch (_) {
+      recordedSurahs = [];
+    }
+    if (_disposed) return;
     phase = Phase.finished;
-    message = 'Alhamdulillah, sesi selesai.';
+    message = failed.isEmpty
+        ? 'Masya Allah, semua bacaan benar!'
+        : '${failed.length} ayat perlu diperbaiki';
+    _haptic(strong: failed.isNotEmpty);
     _notify();
+  }
+
+  void _haptic({required bool strong}) {
+    try {
+      final f = strong
+          ? HapticFeedback.mediumImpact()
+          : HapticFeedback.lightImpact();
+      f.catchError((_) {});
+    } catch (_) {}
   }
 
   void _notify() {
@@ -411,11 +506,15 @@ class SessionController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _rec.onResult = null;
-    _rec.onFatalError = null;
-    _rec.onListeningChanged = null;
-    _rec.onProcessingChanged = null;
-    _rec.stop();
+    _turn++;
+    _stopCountdown();
+    final rec = _rec;
+    rec.onResult = null;
+    rec.onFatalError = null;
+    rec.onListeningChanged = null;
+    rec.onProcessingChanged = null;
+    rec.onActivity = null;
+    rec.stop();
     _player?.dispose();
     super.dispose();
   }

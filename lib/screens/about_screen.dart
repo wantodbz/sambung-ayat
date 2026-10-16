@@ -29,7 +29,7 @@ class AboutScreen extends StatelessWidget {
           const Text('Sambung Ayat',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-          Text(streamsAudio ? 'Versi web 2.2' : 'Versi 2.2 (uji)',
+          Text(streamsAudio ? 'Versi web 2.3' : 'Versi 2.3 (uji)',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.black54)),
           const SizedBox(height: 24),
@@ -50,7 +50,9 @@ class AboutScreen extends StatelessWidget {
               _Row(
                   icon: Icons.volume_up,
                   label: 'Murottal',
-                  value: 'Syaikh Aiman Rusydi Suwaid (EveryAyah.com)'),
+                  value: 'Pilihan qari dari EveryAyah.com: Syaikh Aiman Rusydi '
+                      'Suwaid, Syaikh Mahmud Khalil Al-Hushari, Syaikh Muhammad '
+                      'Ayyub, Syaikh Ali Al-Hudzaifi, Syaikh Abdullah Ali Bashfar'),
               _Row(
                   icon: Icons.menu_book,
                   label: 'Teks Al-Qur\'an',

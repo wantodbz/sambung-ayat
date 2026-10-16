@@ -1,7 +1,8 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show ValueNotifier, kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'model_store.dart';
+import 'reciters.dart';
 
 /// Tingkat ketelitian pengecekan bacaan.
 enum Strictness { longgar, normal, ketat }
@@ -34,6 +35,12 @@ class Settings {
 
   static const _kStrict = 'strictness';
   static const _kModel = 'quran_model';
+  static const _kReciter = 'reciter';
+
+  /// Qari murottal terpilih (bisa didengarkan perubahannya oleh layar).
+  final ValueNotifier<Reciter> reciterListenable =
+      ValueNotifier<Reciter>(Reciter.aiman);
+  Reciter get reciter => reciterListenable.value;
   Strictness strictness = Strictness.normal;
   // Versi web (iPhone/Safari) lebih lambat: bawaan model Cepat.
   QuranModel model = kIsWeb ? QuranModel.cepat : QuranModel.akurat;
@@ -44,10 +51,20 @@ class Settings {
     if (i != null && i >= 0 && i < Strictness.values.length) {
       strictness = Strictness.values[i];
     }
+    final r = p.getString(_kReciter);
+    for (final x in Reciter.values) {
+      if (x.name == r) reciterListenable.value = x;
+    }
     final m = p.getInt(_kModel);
     if (m != null && m >= 0 && m < QuranModel.values.length) {
       model = QuranModel.values[m];
     }
+  }
+
+  Future<void> setReciter(Reciter r) async {
+    reciterListenable.value = r;
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_kReciter, r.name);
   }
 
   Future<void> setModel(QuranModel m) async {

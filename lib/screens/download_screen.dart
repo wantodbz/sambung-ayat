@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../data/quran.dart';
 import '../main.dart';
 import '../services/audio_store.dart';
+import '../services/settings.dart';
+import '../widgets/reciter_picker.dart';
 import 'range_screen.dart';
 
 /// Kelola unduhan murottal per surat.
@@ -14,6 +16,8 @@ class DownloadScreen extends StatefulWidget {
 }
 
 class _DownloadScreenState extends State<DownloadScreen> {
+  // Kunci baru setelah unduh/hapus agar ringkasan qari ikut diperbarui.
+  Key _pickerKey = UniqueKey();
   Map<int, int> _counts = {};
   bool _loading = true;
 
@@ -38,6 +42,11 @@ class _DownloadScreenState extends State<DownloadScreen> {
     }
   }
 
+  Future<void> _refreshAll() async {
+    await _refresh();
+    if (mounted) setState(() => _pickerKey = UniqueKey());
+  }
+
   @override
   Widget build(BuildContext context) {
     final q = QuranData.instance;
@@ -50,13 +59,36 @@ class _DownloadScreenState extends State<DownloadScreen> {
               separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (ctx, i) {
                 if (i == 0) {
-                  return const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'Murottal Syaikh Aiman Rusydi Suwaid diunduh per surat '
-                      'dan disimpan di HP, sehingga menu Sambung Ayat bisa '
-                      'memutar audio tanpa internet. Murajaah tidak memerlukan audio.',
-                      style: TextStyle(color: Colors.black54),
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Qari murottal',
+                            style: TextStyle(
+                                fontSize: 17, fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Pilih qari, lalu unduh surat yang dibutuhkan. Audio '
+                          'qari lain tetap tersimpan sampai dihapus (ikon 🗑).',
+                          style: TextStyle(color: Colors.black54),
+                        ),
+                        const SizedBox(height: 10),
+                        ReciterPicker(
+                            key: _pickerKey, onChanged: () => _refresh()),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Surat • ${Settings.instance.reciter.label}',
+                          style: const TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Audio disimpan di HP sehingga Sambung Ayat bisa '
+                          'diputar tanpa internet. Murajaah tidak memerlukan audio.',
+                          style: TextStyle(color: Colors.black54),
+                        ),
+                      ],
                     ),
                   );
                 }
@@ -100,7 +132,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${s.latin} selesai diunduh')));
     }
-    await _refresh();
+    await _refreshAll();
   }
 
   Future<void> _delete(Surah s) async {
@@ -121,7 +153,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
     );
     if (yes == true) {
       await AudioStore.instance.deleteSurah(s.number);
-      await _refresh();
+      await _refreshAll();
     }
   }
 }

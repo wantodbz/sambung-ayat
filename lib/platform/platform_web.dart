@@ -5,6 +5,7 @@ import 'dart:js_interop';
 import 'dart:typed_data';
 
 import '../services/model_store.dart';
+import '../services/reciters.dart';
 import '../services/settings.dart';
 import 'platform.dart';
 
@@ -76,7 +77,6 @@ Future<void> _ensureLoaded(QuranModel m,
 // Pemutar murottal
 
 class _WebPlayer extends MurottalPlayer {
-  static const _base = 'https://everyayah.com/data/Ayman_Sowaid_64kbps/';
 
   @override
   void unlockFromGesture() => _audio.unlock();
@@ -85,9 +85,12 @@ class _WebPlayer extends MurottalPlayer {
   Future<void> play(int surah, int ayah) async {
     final name =
         '${surah.toString().padLeft(3, '0')}${ayah.toString().padLeft(3, '0')}.mp3';
-    try {
-      await _audio.play('$_base$name').toDart;
-    } catch (_) {}
+    for (final url in Settings.instance.reciter.urlsFor(name)) {
+      try {
+        final ok = (await _audio.play(url).toDart).toDart;
+        if (ok) return;
+      } catch (_) {}
+    }
   }
 
   @override
@@ -191,6 +194,7 @@ class _WhisperSpeech extends SpeechEngine {
     }
     final thr = (_floor + 0.15).clamp(0.3, 0.8);
     if (lv > thr) {
+      onActivity?.call();
       _loudTicks++;
       _quietTicks = 0;
       if (_loudTicks >= 3) _speechStarted = true;
@@ -359,6 +363,9 @@ class _HybridSpeech extends SpeechEngine {
       };
       e.onProcessingChanged = (p) {
         if (identical(e, _active)) onProcessingChanged?.call(p);
+      };
+      e.onActivity = () {
+        if (identical(e, _active)) onActivity?.call();
       };
     }
     _safari.onUnavailable = _fallback;

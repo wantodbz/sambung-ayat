@@ -3,8 +3,6 @@ name: Build iPhone
 # Membangun IPA tanpa tanda tangan. IPA ini dipasang ke iPhone lewat
 # Sideloadly/AltStore memakai Apple ID gratis (ditandatangani di sana).
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -60,8 +58,8 @@ jobs:
       - name: Terbitkan rilis iPhone
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ios-v2.1.${{ github.run_number }}
-          name: Sambung Ayat iPhone v2.1.${{ github.run_number }}
+          tag_name: ios-v2.3.${{ github.run_number }}
+          name: Sambung Ayat iPhone v2.3.${{ github.run_number }}
           prerelease: true
           body: |
             IPA tanpa tanda tangan untuk iPhone. Pasang lewat Sideloadly atau

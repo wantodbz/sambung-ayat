@@ -1,0 +1,15 @@
+name: Cek Berkas Audio
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cek:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cek Al-Qasas 87 Muhammad Ayyub
+        run: |
+          for f in Muhammad_Ayyoub_128kbps Muhammad_Ayyoub_32kbps Muhammad_Ayyoub_64kbps; do
+            r=$(curl -s -o /dev/null -w "%{http_code} %{size_download}" https://everyayah.com/data/$f/028087.mp3)
+            echo "::notice title=$f/028087.mp3::$r"
+          done
