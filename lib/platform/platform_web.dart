@@ -194,10 +194,12 @@ class _WhisperSpeech extends SpeechEngine {
     }
     final thr = (_floor + 0.15).clamp(0.3, 0.8);
     if (lv > thr) {
-      onActivity?.call();
       _loudTicks++;
       _quietTicks = 0;
-      if (_loudTicks >= 3) _speechStarted = true;
+      if (_loudTicks >= 3) {
+        _speechStarted = true;
+        onActivity?.call();
+      }
     } else {
       _quietTicks++;
     }

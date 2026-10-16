@@ -28,7 +28,7 @@ abstract class SpeechEngine {
   void Function(bool listening)? onListeningChanged;
   void Function(bool processing)? onProcessingChanged;
 
-  /// Dipanggil saat terdengar suara bacaan (dipakai hitung mundur).
+  /// Dipanggil saat suara bacaan mulai terdengar (menghentikan hitung mundur).
   void Function()? onActivity;
 
   Future<bool> init();

@@ -278,11 +278,12 @@ class _StatusCard extends StatelessWidget {
             },
           ),
         ),
-        if (listening) ...[
+        if (listening && !c.voiceHeard) ...[
           const SizedBox(height: 18),
-          // Hitung mundur: mulai lagi setiap kali bacaan terdengar.
+          // Hitung mundur hanya sampai suara bacaan pertama terdengar.
           Text(
             '${c.countdown}',
+            key: const Key('countdown'),
             style: TextStyle(
               fontSize: 44,
               fontWeight: FontWeight.w800,
@@ -305,13 +306,28 @@ class _StatusCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            c.processing
-                ? 'Memeriksa bacaan…'
-                : (c.micActive
-                    ? 'Mendengarkan… (hitungan diulang saat Anda membaca)'
-                    : 'Menyiapkan mikrofon…'),
+            c.micActive
+                ? 'Silakan mulai membaca sebelum waktu habis'
+                : 'Menyiapkan mikrofon…',
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.black45),
+          ),
+        ],
+        if (listening && c.voiceHeard) ...[
+          const SizedBox(height: 14),
+          Text(
+            c.processing ? 'Memeriksa bacaan…' : 'Mendengarkan bacaan…',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                fontSize: 16,
+                color: AppColors.green,
+                fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Bila sudah selesai tetapi belum lanjut, ketuk "Selesai membaca".',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.black45),
           ),
         ],
       ],

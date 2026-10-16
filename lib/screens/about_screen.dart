@@ -29,7 +29,7 @@ class AboutScreen extends StatelessWidget {
           const Text('Sambung Ayat',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-          Text(streamsAudio ? 'Versi web 2.3' : 'Versi 2.3 (uji)',
+          Text(streamsAudio ? 'Versi web 2.4' : 'Versi 2.4 (uji)',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.black54)),
           const SizedBox(height: 24),

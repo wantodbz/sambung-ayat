@@ -1,6 +1,6 @@
 // Uji alur Sambung Ayat dengan pengenal suara & pemutar tiruan:
-// bacaan salah/tidak terbaca tetap lanjut, hitung mundur 15 detik dimulai
-// lagi saat ada bacaan, dan koreksi ditampilkan di akhir.
+// bacaan salah/tidak terbaca tetap lanjut, hitung mundur 15 detik hanya
+// sampai suara bacaan terdengar, dan koreksi ditampilkan di akhir.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -122,7 +122,7 @@ void main() {
     c.dispose();
   });
 
-  testWidgets('hitung mundur dimulai lagi saat bacaan terdengar; semua benar',
+  testWidgets('hitung mundur hilang setelah suara terdengar; semua benar',
       (tester) async {
     final e = FakeEngine();
     final p = FakePlayer();
@@ -130,25 +130,30 @@ void main() {
     unawaited(c.start());
     await tester.pump(const Duration(seconds: 5));
     expect(c.current!.ayah, 2);
+    expect(c.voiceHeard, isFalse);
 
     // 10 detik diam, lalu bacaan mulai terdengar (hasil sementara).
     await tester.pump(const Duration(seconds: 10));
     expect(c.countdown, lessThanOrEqualTo(6));
     e.say('الله', isFinal: false);
     await tester.pump(const Duration(milliseconds: 300));
-    expect(c.countdown, 15);
+    expect(c.voiceHeard, isTrue);
 
-    // 10 detik lagi: belum habis karena hitung mundur dimulai ulang.
-    await tester.pump(const Duration(seconds: 10));
+    // Setelah ada suara tidak ada batas waktu: 60 detik tetap menunggu.
+    await tester.pump(const Duration(seconds: 60));
     expect(c.phase, Phase.listening);
+    expect(c.verdicts, isEmpty);
 
     e.say('الله الصمد');
     await tester.pump(const Duration(milliseconds: 100));
     expect(c.verdicts.last.verdict, Verdict.correct);
 
+    // Giliran berikutnya: hitung mundur muncul lagi dari awal.
     await tester.pump(const Duration(seconds: 4));
     expect(c.phase, Phase.listening);
     expect(c.current!.ayah, 4);
+    expect(c.voiceHeard, isFalse);
+    expect(c.countdown, greaterThanOrEqualTo(13));
     e.say('ولم يكن له كفوا أحد');
     await tester.pump(const Duration(seconds: 3));
 
@@ -173,15 +178,29 @@ void main() {
     expect(find.text('Selesai membaca'), findsOneWidget);
     expect(find.text('Giliran Anda: bacalah ayat 2'), findsOneWidget);
 
+    expect(find.byKey(const Key('countdown')), findsOneWidget);
+
     // Ketuk "Selesai membaca" tanpa bacaan → tidak terbaca, lanjut.
     await tester.tap(find.text('Selesai membaca'));
     await tester.pump(const Duration(seconds: 6));
     expect(c.current!.ayah, 4);
+    expect(find.byKey(const Key('countdown')), findsOneWidget);
 
-    e.say('قل أعوذ برب الفلق');
+    // Suara terdengar → hitung mundur hilang dari layar.
+    e.say('ولم يكن', isFinal: false);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const Key('countdown')), findsNothing);
+    expect(find.text('Mendengarkan bacaan…'), findsOneWidget);
+
+    // Berhenti di tengah ayat: tetap menunggu sampai "Selesai membaca".
+    await tester.pump(const Duration(seconds: 30));
+    expect(c.phase, Phase.listening);
+    await tester.tap(find.text('Selesai membaca'));
     await tester.pump(const Duration(seconds: 3));
     await tester.pump();
     expect(c.phase, Phase.finished);
+    expect(c.verdicts.last.verdict, Verdict.wrong);
+    expect(c.verdicts.last.wrongChars, isNotEmpty);
     expect(find.text('2 ayat perlu diperbaiki'), findsOneWidget);
     expect(find.text('Benar 0 dari 2 ayat yang Anda baca'), findsOneWidget);
     expect(find.byType(MistakeCard), findsNWidgets(2));
