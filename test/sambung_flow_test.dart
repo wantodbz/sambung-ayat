@@ -172,6 +172,48 @@ void main() {
     c.dispose();
   });
 
+  testWidgets('bising terus terbaca sebagai kata: tetap selesai (batas aman)',
+      (tester) async {
+    final e = FakeEngine();
+    final p = FakePlayer();
+    final c = makeController(e, p);
+    unawaited(c.start());
+    await tester.pump(const Duration(seconds: 5));
+    expect(c.current!.ayah, 2);
+    // Hasil sementara terus berubah tiap detik (mis. suara TV/kipas).
+    // Ayat 2 berisi 8 huruf → batas aman 20 + 3,2 = 23,2 detik.
+    for (var i = 0; i < 22; i++) {
+      e.say(i.isEven ? 'الله' : 'اللهُ', isFinal: false);
+      await tester.pump(const Duration(seconds: 1));
+    }
+    expect(c.phase, Phase.listening);
+    for (var i = 0; i < 3; i++) {
+      e.say(i.isEven ? 'الله' : 'اللهُ', isFinal: false);
+      await tester.pump(const Duration(seconds: 1));
+    }
+    expect(c.verdicts.single.verdict, Verdict.wrong);
+    c.dispose();
+    await tester.pump(const Duration(seconds: 5)); // habiskan timer tersisa
+  });
+
+  testWidgets('HP tanpa hasil sementara: diam 3 detik setelah hasil terakhir',
+      (tester) async {
+    final e = FakeEngine();
+    final p = FakePlayer();
+    final c = makeController(e, p);
+    unawaited(c.start());
+    await tester.pump(const Duration(seconds: 5));
+    e.say('الله'); // hasil final pertama (belum selesai)
+    await tester.pump(const Duration(milliseconds: 2500));
+    e.say('قل'); // masih membaca: hasil final berikutnya
+    await tester.pump(const Duration(milliseconds: 2500));
+    expect(c.phase, Phase.listening);
+    await tester.pump(const Duration(seconds: 1));
+    expect(c.verdicts.single.verdict, Verdict.wrong);
+    c.dispose();
+    await tester.pump(const Duration(seconds: 5)); // habiskan timer tersisa
+  });
+
   testWidgets('semua benar langsung lanjut dan tercatat di laporan',
       (tester) async {
     final e = FakeEngine();

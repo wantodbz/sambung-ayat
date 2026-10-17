@@ -76,6 +76,9 @@ class SessionController extends ChangeNotifier {
   Timer? _countdownTimer;
   int _silentTicks = 0; // sebelum ada suara (hitung mundur 15 detik)
   int _quietTicks = 0; // diam setelah ada suara (3 detik, tidak tampil)
+  int _voiceTicks = 0; // lama giliran sejak suara pertama
+  int _capTicks = 0; // batas aman bila "suara" tak kunjung berhenti
+  bool _partialsSeen = false; // perangkat mengirim hasil sementara
   String _lastPartialSeen = '';
   static const int _ticksPerSecond = 4;
 
@@ -271,6 +274,7 @@ class SessionController extends ChangeNotifier {
 
   void _resetHeard() {
     _lastPartialSeen = '';
+    _partialsSeen = false;
     _finalText = '';
     _partialText = '';
     _finalRaw = '';
@@ -296,7 +300,9 @@ class SessionController extends ChangeNotifier {
           return;
         }
         _quietTicks++;
-        if (_quietTicks >= quietSeconds * _ticksPerSecond) {
+        _voiceTicks++;
+        if (_quietTicks >= quietSeconds * _ticksPerSecond ||
+            _voiceTicks >= _capTicks) {
           _onQuietAfterSpeech();
         }
         return;
@@ -327,10 +333,16 @@ class SessionController extends ChangeNotifier {
     if (_disposed || voiceHeard || phase != Phase.listening) return;
     voiceHeard = true;
     _quietTicks = 0;
+    _voiceTicks = 0;
+    // Batas aman (mis. ruangan bising terus terbaca sebagai kata):
+    // 20 detik + 0,4 detik per huruf ayat.
+    final len = ArabicMatcher.normalize(current?.text ?? '').length;
+    _capTicks = ((20 + len * 0.4) * _ticksPerSecond).round();
     _notify();
   }
 
-  /// Masih terdengar suara bacaan: hitungan diam dimulai lagi.
+  /// Versi web (model di HP): mikrofon masih menangkap suara bacaan,
+  /// hitungan diam dimulai lagi.
   void _noteSound() {
     if (voiceHeard) _quietTicks = 0;
   }
@@ -381,9 +393,15 @@ class SessionController extends ChangeNotifier {
     // Ada bacaan terdengar: hitung mundur disembunyikan.
     if (text.trim().isNotEmpty) {
       _markVoice();
-      // Hasil sementara yang bertambah berarti masih membaca.
-      if (!isFinal && text != _lastPartialSeen) {
-        _lastPartialSeen = text;
+      if (!isFinal) {
+        // Kata yang dikenali bertambah/berubah berarti masih membaca.
+        _partialsSeen = true;
+        if (text != _lastPartialSeen) {
+          _lastPartialSeen = text;
+          _quietTicks = 0;
+        }
+      } else if (!_partialsSeen) {
+        // Perangkat tanpa hasil sementara: hasil final baru = masih membaca.
         _quietTicks = 0;
       }
     }

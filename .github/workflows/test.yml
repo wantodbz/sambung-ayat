@@ -18,7 +18,10 @@ jobs:
           cache: true
 
       - name: Ambil pustaka
-        run: flutter pub get
+        run: |
+          flutter pub get
+          v=$(grep -A6 '^  speech_to_text:' pubspec.lock | grep 'version:' | head -1 | tr -d ' "')
+          echo "::notice title=Versi speech_to_text::$v"
 
       - name: Jalankan uji
         run: |
