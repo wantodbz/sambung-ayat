@@ -30,7 +30,7 @@ jobs:
           code=$?
           tail -100 test.log
           if [ $code -ne 0 ]; then
-            msg=$(grep -E "Expected|Actual|Which|LOG:|Error|error:|EXCEPTION|overflowed|\[E\]|Some tests failed" test.log | head -50 | cut -c1-300 | sed ':a;N;$!ba;s/\n/%0A/g')
+            msg=$(grep -E "Expected|Actual|Which|LOG:|Error|error:|EXCEPTION|overflowed|\[E\]|Some tests failed" test.log | head -50 | cut -c1-2500 | sed ':a;N;$!ba;s/\n/%0A/g')
             echo "::error title=Uji gagal::$msg"
           else
             echo "::notice title=Uji lulus::$(tail -1 test.log | cut -c1-200)"
