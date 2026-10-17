@@ -201,13 +201,21 @@ void main() {
     final e = FakeEngine();
     final p = FakePlayer();
     final c = makeController(e, p);
+    final log = <String>[];
+    c.addListener(() {
+      final st = '${c.phase.name}|${c.message}|${c.verdicts.map((v) => v.verdict.name).join(',')}';
+      if (log.isEmpty || log.last != st) log.add(st);
+    });
     unawaited(c.start());
     await tester.pump(const Duration(seconds: 5));
     e.say('الله'); // hasil final pertama (belum selesai)
+    log.add('--say1 heard=${c.heard}');
     await tester.pump(const Duration(milliseconds: 2500));
+    log.add('--t7.5 ${c.phase.name}');
     e.say('قل'); // masih membaca: hasil final berikutnya
+    log.add('--say2 heard=${c.heard}');
     await tester.pump(const Duration(milliseconds: 2500));
-    expect(c.phase, Phase.listening);
+    expect(c.phase, Phase.listening, reason: 'LOG: ${log.join(' > ')}');
     await tester.pump(const Duration(seconds: 1));
     expect(c.verdicts.single.verdict, Verdict.wrong);
     c.dispose();
