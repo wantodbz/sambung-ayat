@@ -215,7 +215,11 @@ void main() {
     e.say('قل'); // masih membaca: hasil final berikutnya
     log.add('--say2 heard=${c.heard}');
     await tester.pump(const Duration(milliseconds: 2500));
-    expect(c.phase, Phase.listening, reason: 'LOG: ${log.join(' > ')}');
+    for (final l in log) {
+      // ignore: avoid_print
+      print('LOG: $l');
+    }
+    expect(c.phase, Phase.listening);
     await tester.pump(const Duration(seconds: 1));
     expect(c.verdicts.single.verdict, Verdict.wrong);
     c.dispose();
