@@ -8,13 +8,22 @@ Aplikasi Android untuk latihan hafalan Al-Qur'an dengan murottal pilihan (Syaikh
 
 Pembuat: **Abu Syafiq**, Perumahan Ar-Raihaan Blok B7.
 
-## Mengunduh APK
+## Memasang
 
-Buka tab **Releases** di repo ini, unduh `SambungAyat.apk` versi terbaru, lalu pasang di HP Android (izinkan "instal dari sumber tidak dikenal").
+- **Android**: lewat Google Play (sedang disiapkan). APK uji tetap tersedia di tab **Releases** (`SambungAyat.apk`).
+- **iPhone**: buka https://wantodbz.github.io/sambung-ayat/ di Safari, lalu "Tambahkan ke Layar Utama".
+
+Kebijakan privasi: https://wantodbz.github.io/sambung-ayat/privasi.html
+
+## Google Play
+
+- Setiap build juga menghasilkan berkas `.aab` (target API 36) untuk diunggah ke Google Play.
+- Kunci unggah tersimpan terenkripsi di `tool/signing/upload.p12.enc`. Bila secret repo `KUNCI_UNGGAH` diisi, AAB langsung ditandatangani (`SambungAyat.aab`); bila belum, AAB dibuat tanpa tanda tangan.
+- Grafis halaman toko ada di folder `store/`.
 
 ## Catatan
 
 - Pengecekan memeriksa lafaz/hafalan, **bukan** tajwid atau makhraj.
-- Pengecekan memakai pengenal suara Google sehingga membutuhkan internet.
+- Sambung Ayat memakai pengenal suara bawaan HP (Google) sehingga membutuhkan internet; Murajaah diperiksa di HP tanpa internet.
 - Teks Al-Qur'an: Rasm Utsmani dari QuranEnc.com melalui paket `quran-json` (CC BY 4.0). Audio: EveryAyah.com.
 - APK dibangun otomatis oleh GitHub Actions (`.github/workflows/build.yml`).

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../platform/platform.dart';
+import 'privacy_screen.dart';
+
+const _version = '2.7';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -29,7 +32,7 @@ class AboutScreen extends StatelessWidget {
           const Text('Sambung Ayat',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-          Text(streamsAudio ? 'Versi web 2.6' : 'Versi 2.6 (uji)',
+          Text(streamsAudio ? 'Versi web $_version' : 'Versi $_version',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.black54)),
           const SizedBox(height: 24),
@@ -61,8 +64,13 @@ class AboutScreen extends StatelessWidget {
                       'melalui paket quran-json (CC BY 4.0)'),
               _Row(
                   icon: Icons.mic,
-                  label: 'Pengenal suara',
-                  value: 'Layanan pengenal suara bawaan Android (Google)'),
+                  label: 'Pengenal suara (Sambung Ayat)',
+                  value: 'Layanan pengenal suara bawaan HP (di Android: Google)'),
+              _Row(
+                  icon: Icons.memory,
+                  label: 'Pemeriksa bacaan (Murajaah)',
+                  value: 'Model Whisper Qur\'an dari Tarteel AI (Apache 2.0), '
+                      'berjalan di HP melalui whisper.cpp (MIT)'),
             ],
           ),
           const SizedBox(height: 16),
@@ -73,10 +81,39 @@ class AboutScreen extends StatelessWidget {
                 padding: EdgeInsets.all(14),
                 child: Text(
                   'Aplikasi ini mengecek kebenaran lafaz/hafalan, bukan tajwid, '
-                  'makhraj, atau panjang-pendek bacaan. Pengecekan bacaan '
-                  'membutuhkan koneksi internet. Tetap belajar dan setorkan '
-                  'hafalan kepada guru.',
+                  'makhraj, atau panjang-pendek bacaan. Sambung Ayat memakai '
+                  'pengenal suara bawaan HP sehingga umumnya membutuhkan '
+                  'internet; Murajaah diperiksa di HP tanpa internet setelah '
+                  'modelnya diunduh. Tetap belajar dan setorkan hafalan '
+                  'kepada guru.',
                   style: TextStyle(height: 1.5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _Section(
+            title: 'Privasi & Lisensi',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.privacy_tip_outlined,
+                    color: AppColors.green),
+                title: const Text('Kebijakan Privasi'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const PrivacyScreen())),
+              ),
+              ListTile(
+                leading: const Icon(Icons.description_outlined,
+                    color: AppColors.green),
+                title: const Text('Lisensi perangkat lunak'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => showLicensePage(
+                  context: context,
+                  applicationName: 'Sambung Ayat',
+                  applicationVersion: _version,
                 ),
               ),
             ],

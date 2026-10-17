@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import 'package:audio_session/audio_session.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter/material.dart';
 
 import 'data/quran.dart';
@@ -12,6 +13,7 @@ import 'services/settings.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _registerLicenses();
   await Future.wait([
     QuranData.load(),
     Settings.instance.load(),
@@ -21,6 +23,27 @@ Future<void> main() async {
   // Bersihkan sisa rekaman/unduhan yang tertinggal (mis. aplikasi ditutup paksa).
   MurajaahController.deleteRecording();
   runApp(const SambungAyatApp());
+}
+
+/// Lisensi konten yang bukan paket Dart (tampil di halaman Lisensi).
+void _registerLicenses() {
+  LicenseRegistry.addLicense(() async* {
+    yield const LicenseEntryWithLineBreaks(
+      ['Teks Al-Qur\'an (quran-json)'],
+      'Teks Al-Qur\'an Rasm Utsmani dari The Noble Qur\'an Encyclopedia '
+      '(QuranEnc.com), melalui paket quran-json (github.com/risan/quran-json).\n\n'
+      'Lisensi: Creative Commons Attribution 4.0 International (CC BY 4.0)\n'
+      'https://creativecommons.org/licenses/by/4.0/',
+    );
+    yield const LicenseEntryWithLineBreaks(
+      ['Model Whisper Qur\'an (Tarteel AI)'],
+      'Model tarteel-ai/whisper-tiny-ar-quran dan '
+      'tarteel-ai/whisper-base-ar-quran, dikonversi ke format ggml '
+      '(kuantisasi q8_0) untuk aplikasi ini.\n\n'
+      'Lisensi: Apache License 2.0\n'
+      'https://www.apache.org/licenses/LICENSE-2.0',
+    );
+  });
 }
 
 /// iPhone: putar murottal lewat speaker (bukan speaker telepon) walaupun

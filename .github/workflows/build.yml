@@ -38,7 +38,7 @@ jobs:
       - name: Bangun APK
         run: |
           set +e
-          flutter build apk --release > build.log 2>&1
+          flutter build apk --release --build-number=${{ github.run_number }} > build.log 2>&1
           code=$?
           tail -60 build.log
           if [ $code -ne 0 ]; then
@@ -47,18 +47,61 @@ jobs:
           fi
           exit $code
 
+      - name: Periksa target API
+        run: |
+          AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt2
+          info=$("$AAPT2" dump badging build/app/outputs/flutter-apk/app-release.apk | grep -oE "versionCode='[0-9]+'|versionName='[^']+'|targetSdkVersion:'[0-9]+'" | tr '\n' ' ')
+          echo "::notice title=Manifest::$info"
+          echo "$info" | grep -q "targetSdkVersion:'36'" || { echo "::error title=Target API::Target API bukan 36"; exit 1; }
+
+      # AAB untuk Google Play. Bila secret KUNCI_UNGGAH ada, AAB langsung
+      # ditandatangani kunci unggah; bila belum, AAB dibuat tanpa tanda tangan.
+      - name: Bangun AAB (Google Play)
+        env:
+          KUNCI: ${{ secrets.KUNCI_UNGGAH }}
+        run: |
+          set +e
+          if [ -n "$KUNCI" ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -in tool/signing/upload.p12.enc \
+              -out "$RUNNER_TEMP/upload.p12" -pass env:KUNCI || { echo "::error title=Kunci unggah::Isi secret KUNCI_UNGGAH tidak cocok"; exit 1; }
+            export UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.p12" UPLOAD_KEY_PASSWORD="$KUNCI"
+            out=SambungAyat.aab
+          else
+            export TANPA_TANDA_TANGAN=1
+            out=SambungAyat-belum-ditandatangani.aab
+            echo "::warning title=Kunci unggah belum diatur::Tambahkan secret KUNCI_UNGGAH agar AAB langsung siap diunggah ke Google Play."
+          fi
+          flutter build appbundle --release --build-number=${{ github.run_number }} > aab.log 2>&1
+          code=$?
+          rm -f "$RUNNER_TEMP/upload.p12"
+          tail -30 aab.log
+          if [ $code -ne 0 ]; then
+            msg=$(grep -E "error|Error|What went wrong|FAILURE|Exception" aab.log | head -30 | cut -c1-300 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=Build AAB gagal::$msg"
+            exit $code
+          fi
+          cp build/app/outputs/bundle/release/app-release.aab "$out"
+          echo "AAB_FILE=$out" >> "$GITHUB_ENV"
+          echo "::notice title=AAB::$out ($(stat -c %s "$out") byte)"
+
       - name: Beri nama APK
         run: cp build/app/outputs/flutter-apk/app-release.apk SambungAyat.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: SambungAyat-apk
-          path: SambungAyat.apk
+          name: SambungAyat
+          path: |
+            SambungAyat.apk
+            ${{ env.AAB_FILE }}
 
       - name: Terbitkan rilis
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.6.${{ github.run_number }}
-          name: Sambung Ayat v2.6.${{ github.run_number }}
-          body: APK siap dipasang. Unduh berkas SambungAyat.apk di bawah ini.
-          files: SambungAyat.apk
+          tag_name: v2.7.${{ github.run_number }}
+          name: Sambung Ayat v2.7.${{ github.run_number }}
+          body: |
+            - SambungAyat.apk: dipasang langsung di HP (uji).
+            - Berkas .aab: untuk diunggah ke Google Play.
+          files: |
+            SambungAyat.apk
+            ${{ env.AAB_FILE }}
