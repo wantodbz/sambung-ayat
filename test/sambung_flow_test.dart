@@ -181,7 +181,7 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
     expect(c.current!.ayah, 2);
     // Hasil sementara terus berubah tiap detik (mis. suara TV/kipas).
-    // Ayat 2 berisi 8 huruf → batas aman 20 + 3,2 = 23,2 detik.
+    // Ayat 2 berisi 7 huruf → batas aman 20 + 2,8 = 22,8 detik.
     for (var i = 0; i < 22; i++) {
       e.say(i.isEven ? 'الله' : 'اللهُ', isFinal: false);
       await tester.pump(const Duration(seconds: 1));
@@ -201,24 +201,13 @@ void main() {
     final e = FakeEngine();
     final p = FakePlayer();
     final c = makeController(e, p);
-    final log = <String>[];
-    c.addListener(() {
-      final st = '${c.phase.name}|${c.message}|${c.verdicts.map((v) => v.verdict.name).join(',')}';
-      if (log.isEmpty || log.last != st) log.add(st);
-    });
     unawaited(c.start());
     await tester.pump(const Duration(seconds: 5));
-    e.say('الله'); // hasil final pertama (belum selesai)
-    log.add('--say1 heard=${c.heard}');
+    // Ayat 2 (اللهُ الصمد) = 7 huruf; tiap potongan masih jauh dari selesai.
+    e.say('لم'); // hasil final pertama (belum selesai)
     await tester.pump(const Duration(milliseconds: 2500));
-    log.add('--t7.5 ${c.phase.name}');
     e.say('قل'); // masih membaca: hasil final berikutnya
-    log.add('--say2 heard=${c.heard}');
     await tester.pump(const Duration(milliseconds: 2500));
-    for (final l in log) {
-      // ignore: avoid_print
-      print('LOG: $l');
-    }
     expect(c.phase, Phase.listening);
     await tester.pump(const Duration(seconds: 1));
     expect(c.verdicts.single.verdict, Verdict.wrong);
