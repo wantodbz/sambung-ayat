@@ -11,7 +11,7 @@ Pembuat: **Abu Syafiq**, Perumahan Ar-Raihaan Blok B7.
 ## Memasang
 
 - **Android**: lewat Google Play (sedang disiapkan). APK uji tetap tersedia di tab **Releases** (`SambungAyat.apk`).
-- **iPhone**: buka https://wantodbz.github.io/sambung-ayat/ di Safari, lalu "Tambahkan ke Layar Utama".
+- **iPhone**: buka https://wantodbz.github.io/sambung-ayat/ di Safari, lalu "Tambahkan ke Layar Utama". Bila dibuka dari Layar Utama, Sambung Ayat memakai model pengecek di HP (diunduh sekali), karena pengenal suara Safari tidak tersedia di mode itu.
 
 Kebijakan privasi: https://wantodbz.github.io/sambung-ayat/privasi.html
 

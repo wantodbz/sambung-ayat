@@ -59,6 +59,11 @@
     // Mengembalikan seluruh rekaman (Float32Array 16 kHz) lalu mengosongkan memori.
     end: function () {
       capturing = false;
+      return this.take();
+    },
+    // Ambil suara yang terekam sejak pengambilan terakhir tanpa menghentikan
+    // perekaman (Murajaah: diperiksa sambil membaca).
+    take: function () {
       let total = 0;
       for (const c of chunks) total += c.length;
       const pcm = new Float32Array(total);

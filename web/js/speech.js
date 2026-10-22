@@ -1,9 +1,12 @@
 // Pengenal suara bawaan Safari/Chrome (Web Speech API) untuk Sambung Ayat.
 (function () {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // iPhone: aplikasi yang dibuka dari Layar Utama tidak mendapat pengenal
+  // suara Safari (WebKit bug 225298), jadi langsung pakai model di HP.
+  const homeScreenApp = window.navigator.standalone === true;
   let rec = null;
   window.qwSpeech = {
-    supported: function () { return !!SR; },
+    supported: function () { return !!SR && !homeScreenApp; },
     // onResult(text, isFinal), onEnd(), onError(code)
     start: function (lang, onResult, onEnd, onError) {
       try { if (rec) { rec.onend = null; rec.abort(); } } catch (_) {}

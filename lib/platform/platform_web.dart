@@ -34,6 +34,7 @@ extension type _QwRecorder._(JSObject _) implements JSObject {
   external JSPromise<JSBoolean> open();
   external void begin();
   external JSFloat32Array end();
+  external JSFloat32Array take();
   external void discard();
   external double level();
   external double seconds();
@@ -430,6 +431,57 @@ class _WebMurajaahIO extends MurajaahIO {
   Future<JSBoolean>? _opening;
   String? lastError;
 
+  // Rekaman langsung: suara diambil berkala lalu diperiksa sambil membaca.
+  Timer? _livePoll;
+  void Function(Int16List samples)? _liveSink;
+
+  @override
+  bool get supportsLive => true;
+
+  @override
+  Future<void> startLiveRecording(
+      void Function(Int16List samples) onSamples) async {
+    _livePoll?.cancel();
+    _liveSink = onSamples;
+    _recorder.begin();
+    _livePoll = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      final pcm = _recorder.take().toDart;
+      if (pcm.isNotEmpty) _liveSink?.call(_toInt16(pcm));
+    });
+  }
+
+  @override
+  Future<void> stopLiveRecording() async {
+    _livePoll?.cancel();
+    _livePoll = null;
+    final rest = _recorder.end().toDart;
+    if (rest.isNotEmpty) _liveSink?.call(_toInt16(rest));
+    _liveSink = null;
+  }
+
+  static Int16List _toInt16(Float32List f) {
+    final out = Int16List(f.length);
+    for (var i = 0; i < f.length; i++) {
+      final v = f[i];
+      out[i] = v >= 1
+          ? 32767
+          : v <= -1
+              ? -32768
+              : (v * 32767).round();
+    }
+    return out;
+  }
+
+  @override
+  Future<LiveTranscriber> openLiveTranscriber(QuranModel m) async =>
+      _WebLiveTranscriber(m)..start();
+
+  void _stopLive() {
+    _livePoll?.cancel();
+    _livePoll = null;
+    _liveSink = null;
+  }
+
   @override
   Future<bool> hasModel(QuranModel m) async => await modelSize(m) > 0;
 
@@ -483,10 +535,14 @@ class _WebMurajaahIO extends MurajaahIO {
   Future<Float32List?> stopRecording() async => _recorder.end().toDart;
 
   @override
-  Future<void> discardRecording() async => _recorder.discard();
+  Future<void> discardRecording() async {
+    _stopLive();
+    _recorder.discard();
+  }
 
   @override
   Future<void> closeRecorder() async {
+    _stopLive();
     _recorder.discard();
   }
 
@@ -513,4 +569,86 @@ class _WebMurajaahIO extends MurajaahIO {
 
   @override
   Future<void> cleanup() async {}
+}
+
+/// Pemeriksa bertahap versi web: potongan diperiksa berurutan oleh worker
+/// whisper (WebAssembly) selama anak masih membaca.
+class _WebLiveTranscriber extends LiveTranscriber {
+  _WebLiveTranscriber(this.model);
+  final QuranModel model;
+
+  final _events = StreamController<TxEvent>();
+  final _queue = <Int16List>[];
+  int _submitted = 0;
+  int _done = 0;
+  bool _closed = false;
+  bool _stopped = false;
+  bool _running = false;
+  bool _loaded = false;
+
+  @override
+  Stream<TxEvent> get events => _events.stream;
+
+  @override
+  int get submitted => _submitted;
+
+  /// Muat model sekarang, agar galat (mis. model rusak) segera terlihat.
+  void start() => _pump();
+
+  @override
+  void add(Int16List chunk) {
+    if (_closed || _stopped) return;
+    _submitted++;
+    _queue.add(chunk);
+    _pump();
+  }
+
+  @override
+  void close() {
+    if (_stopped) return;
+    _closed = true;
+    _pump();
+  }
+
+  @override
+  Future<void> cancel() async {
+    _stopped = true;
+    _queue.clear();
+    if (!_events.isClosed) await _events.close();
+  }
+
+  Future<void> _pump() async {
+    if (_running || _stopped) return;
+    _running = true;
+    try {
+      if (!_loaded) {
+        await _ensureLoaded(model);
+        _loaded = true;
+      }
+      while (!_stopped && _queue.isNotEmpty) {
+        final c = _queue.removeAt(0);
+        final f = Float32List(c.length);
+        for (var i = 0; i < c.length; i++) {
+          f[i] = c[i] / 32768.0;
+        }
+        final text = (await _bridge.transcribe(f.toJS).toDart).toDart;
+        if (_stopped) return;
+        _done++;
+        _events.add(TxEvent(_done, _submitted, text));
+      }
+      if (_closed && !_stopped) {
+        _stopped = true;
+        _events.add(TxEvent(_done, _submitted, '', finished: true));
+        await _events.close();
+      }
+    } catch (e) {
+      if (!_stopped) {
+        _stopped = true;
+        _events.add(TxEvent(_done, _submitted, '', error: '$e'));
+        await _events.close();
+      }
+    } finally {
+      _running = false;
+    }
+  }
 }
