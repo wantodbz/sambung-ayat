@@ -67,7 +67,14 @@ onmessage = async (e) => {
       M.HEAPF32.set(pcm, p >> 2);
       const outLen = 32768;
       const out = M._malloc(outLen);
-      const n = M._qw_transcribe(ctx, p, pcm.length, 1, out, outLen);
+      // Konteks audio sepanjang potongan (bukan 30 detik penuh) dan batas
+      // token: hasil sama, ±40% lebih cepat (uji At-Tahrim).
+      const sec = pcm.length / 16000;
+      const audioCtx = Math.min(1500, Math.floor(sec * 50) + 64);
+      const maxTokens = Math.min(220, Math.ceil(sec * 12) + 16);
+      const n = M._qw_transcribe_ex
+        ? M._qw_transcribe_ex(ctx, p, pcm.length, 1, maxTokens, audioCtx, 0, out, outLen)
+        : M._qw_transcribe(ctx, p, pcm.length, 1, out, outLen);
       const text = n > 0 ? M.UTF8ToString(out, n) : '';
       M._free(p); M._free(out);
       if (n < 0) throw new Error('Pemrosesan gagal');

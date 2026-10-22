@@ -71,12 +71,12 @@ def main():
         ("lama", "bench", "ggml-quran-base.bin", 1, False),
         ("baru", "bench", "ggml-quran-base.bin", 0, False),
         ("baru+ctx", "bench", "ggml-quran-base.bin", 0, True),
-        ("cepat", "bench", "ggml-quran-tiny.bin", 0, False),
+        ("cepat+ctx", "bench", "ggml-quran-tiny.bin", 0, True),
     ]
     if arm:
-        configs.append(("baru-dotprod", "bench_dp", "ggml-quran-base.bin", 0, False))
+        configs.append(("baru+ctx-dotprod", "bench_dp", "ggml-quran-base.bin", 0, True))
     cpu = "ARM" if arm else "x86"
-    for audio in ("jernih", "anak"):
+    for audio in ("jernih", "anak", "sulit"):
         info = manifest[audio]
         parts = []
         for name, binary, model, flags, use_ctx in configs:

@@ -59,8 +59,43 @@ abstract class MurottalPlayer {
   void unlockFromGesture() {}
 }
 
+/// Transkripsi bertahap Murajaah: potongan rekaman dikirim satu per satu
+/// selama anak membaca dan diproses berurutan di latar belakang.
+abstract class LiveTranscriber {
+  /// Teks tiap potongan yang selesai (berurutan). Setelah [close], kejadian
+  /// terakhir bertanda `finished`.
+  Stream<TxEvent> get events;
+
+  /// Jumlah potongan yang sudah dikirim.
+  int get submitted;
+
+  /// Kirim satu potongan PCM 16-bit 16 kHz mono.
+  void add(Int16List chunk);
+
+  /// Tidak ada potongan lagi; selesaikan antrean.
+  void close();
+
+  /// Hentikan segera dan buang antrean.
+  Future<void> cancel();
+}
+
 /// Kebutuhan Murajaah: model, perekaman, transkripsi.
 abstract class MurajaahIO {
+  /// Native: rekaman dialirkan sebagai PCM agar bisa diperiksa sambil
+  /// membaca (tanpa berkas rekaman). Web: false (diperiksa setelah selesai).
+  bool get supportsLive => false;
+
+  /// Mulai merekam sebagai aliran PCM 16-bit 16 kHz mono.
+  Future<void> startLiveRecording(void Function(Int16List samples) onSamples) =>
+      throw UnsupportedError('live');
+
+  /// Hentikan aliran rekaman (sisa suara dikirim dulu ke onSamples).
+  Future<void> stopLiveRecording() async {}
+
+  /// Siapkan pemeriksa bertahap dengan model [m].
+  Future<LiveTranscriber> openLiveTranscriber(QuranModel m) =>
+      throw UnsupportedError('live');
+
   Future<bool> hasModel(QuranModel m);
   Future<int> modelSize(QuranModel m);
   Future<void> downloadModel(QuranModel m,

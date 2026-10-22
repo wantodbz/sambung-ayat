@@ -36,6 +36,14 @@ class Settings {
   static const _kStrict = 'strictness';
   static const _kModel = 'quran_model';
   static const _kReciter = 'reciter';
+  static const _kQuiet = 'quiet_seconds';
+
+  /// Pilihan jeda tunggu Sambung Ayat (detik).
+  static const quietChoices = [3, 4, 5, 6, 7];
+
+  /// Sambung Ayat: lama diam (mis. lupa di tengah ayat) sebelum bacaan
+  /// dinilai lalu lanjut otomatis.
+  int quietSeconds = 5;
 
   /// Qari murottal terpilih (bisa didengarkan perubahannya oleh layar).
   final ValueNotifier<Reciter> reciterListenable =
@@ -59,6 +67,14 @@ class Settings {
     if (m != null && m >= 0 && m < QuranModel.values.length) {
       model = QuranModel.values[m];
     }
+    final q = p.getInt(_kQuiet);
+    if (q != null && quietChoices.contains(q)) quietSeconds = q;
+  }
+
+  Future<void> setQuietSeconds(int s) async {
+    quietSeconds = s;
+    final p = await SharedPreferences.getInstance();
+    await p.setInt(_kQuiet, s);
   }
 
   Future<void> setReciter(Reciter r) async {

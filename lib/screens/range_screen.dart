@@ -106,6 +106,7 @@ class RangeScreen extends StatelessWidget {
                   ayahs: ayahs,
                   threshold: threshold,
                   title: label,
+                  quietSeconds: Settings.instance.quietSeconds,
                 ),
               ),
       ),

@@ -1,7 +1,7 @@
 name: sambung_ayat
 description: Aplikasi Sambung Ayat dan Murajaah Al-Qur'an dengan murottal pilihan.
 publish_to: 'none'
-version: 2.7.0+14
+version: 2.8.0+15
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

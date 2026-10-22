@@ -63,6 +63,21 @@ class MurajaahController extends ChangeNotifier {
   bool _disposed = false;
   bool _cancelDownload = false;
 
+  // Native: rekaman dipotong di jeda dan diperiksa sambil anak membaca,
+  // sehingga setelah "Selesai" hanya sisa potongan terakhir yang diproses.
+  bool get _live => _io.supportsLive;
+  LiveSplitter? _splitter;
+  LiveTranscriber? _tx;
+  StreamSubscription<TxEvent>? _txSub;
+  Completer<String?>? _liveDone; // null = selesai, teks = galat
+  final List<String> _liveTexts = [];
+  DateTime? _checkStarted;
+  int _doneAtCheck = 0;
+
+  /// Native: mengganti model saat merekam berarti mulai ulang (pemeriksaan
+  /// sudah berjalan dengan model sebelumnya).
+  bool get restartsOnModelChange => _live;
+
   List<AyahVerdict> get mistakes =>
       verdicts.where((v) => v.verdict != Verdict.correct).toList();
 
@@ -147,7 +162,11 @@ class MurajaahController extends ChangeNotifier {
       return;
     }
     try {
-      await _io.startRecording();
+      if (_live) {
+        await _startLive();
+      } else {
+        await _io.startRecording();
+      }
     } catch (e) {
       _fail('Perekaman gagal dimulai: $e');
       return;
@@ -171,6 +190,66 @@ class MurajaahController extends ChangeNotifier {
     _notify();
   }
 
+  /// Native: siapkan pemeriksa (model dimuat di latar belakang) lalu
+  /// alirkan rekaman ke pemotong; tiap potongan yang siap langsung diperiksa.
+  Future<void> _startLive() async {
+    await _cancelLive();
+    _liveTexts.clear();
+    _checkStarted = null;
+    final splitter = _splitter = LiveSplitter();
+    final done = _liveDone = Completer<String?>();
+    final tx = _tx = await _io.openLiveTranscriber(model);
+    _txSub = tx.events.listen((ev) {
+      if (ev.error != null) {
+        if (!done.isCompleted) done.complete(ev.error);
+        // Gagal saat anak masih membaca (mis. model rusak): beri tahu sekarang.
+        if (phase == MurajaahPhase.reading) _fail('Pemrosesan gagal: ${ev.error}');
+        return;
+      }
+      if (ev.finished) {
+        if (!done.isCompleted) done.complete(null);
+        return;
+      }
+      _liveTexts.add(ev.text);
+      if (phase == MurajaahPhase.checking) {
+        _showProgress(_liveTexts.length, tx.submitted);
+      }
+    }, onDone: () {
+      if (!done.isCompleted) done.complete(null);
+    });
+    await _io.startLiveRecording((samples) {
+      if (!identical(_splitter, splitter) || !identical(_tx, tx)) return;
+      for (final c in splitter.add(samples)) {
+        tx.add(c);
+      }
+    });
+  }
+
+  Future<void> _cancelLive() async {
+    await _txSub?.cancel();
+    _txSub = null;
+    final tx = _tx;
+    _tx = null;
+    _splitter = null;
+    await tx?.cancel();
+  }
+
+  void _showProgress(int done, int total) {
+    progress = total == 0 ? 0 : done / total;
+    var label = 'Bagian $done dari $total';
+    final started = _checkStarted;
+    if (started != null && done < total && done > _doneAtCheck) {
+      final per = DateTime.now().difference(started).inMilliseconds /
+          1000 /
+          (done - _doneAtCheck);
+      label += ' • sisa ±${_fmtSec((per * (total - done)).round())}';
+    }
+    progressLabel = label;
+    final t = _liveTexts.join(' ').trim();
+    heardTail = t.length > 90 ? '…${t.substring(t.length - 90)}' : t;
+    _notify();
+  }
+
   void _stopTimers() {
     _clock?.cancel();
     _levelPoll?.cancel();
@@ -182,6 +261,7 @@ class MurajaahController extends ChangeNotifier {
   /// Hentikan perekaman yang sedang berjalan lalu buang rekamannya.
   Future<void> _stopAndDiscard() async {
     _stopTimers();
+    await _cancelLive();
     await _io.discardRecording();
   }
 
@@ -206,6 +286,10 @@ class MurajaahController extends ChangeNotifier {
     if (await _io.hasModel(m)) {
       if (phase == MurajaahPhase.needModel || phase == MurajaahPhase.error) {
         await _afterModelReady();
+      } else if (_live && phase == MurajaahPhase.reading) {
+        // Pemeriksaan sudah berjalan dengan model lama: mulai ulang.
+        await _stopAndDiscard();
+        await _beginRecording();
       } else {
         _notify();
       }
@@ -225,6 +309,73 @@ class MurajaahController extends ChangeNotifier {
     progressLabel = 'Menyiapkan rekaman';
     _notify();
 
+    final texts = _live ? await _finishLive() : await _finishBatch();
+    if (texts == null || _disposed) return;
+
+    final heard = ArabicMatcher.normalize(texts.join(' '));
+    verdicts = ArabicMatcher.review(ayahs, heard, threshold);
+    final wrong = {
+      for (final v in verdicts)
+        if (v.verdict != Verdict.correct) '${v.ayah.surah}:${v.ayah.ayah}'
+    };
+    recordedSurahs = await ParentReport.instance.recordSession(
+      ayahs: ayahs,
+      mode: 'Murajaah',
+      failed: (a) => wrong.contains('${a.surah}:${a.ayah}'),
+      errorsOf: (_) => 0,
+    );
+    phase = MurajaahPhase.done;
+    message = wrong.isEmpty
+        ? 'Masya Allah, semua ayat benar!'
+        : '${wrong.length} ayat perlu diperbaiki';
+    if (wrong.isEmpty) {
+      HapticFeedback.lightImpact();
+    } else {
+      HapticFeedback.heavyImpact();
+    }
+    _notify();
+  }
+
+  /// Native: kirim sisa rekaman, lalu tunggu antrean pemeriksaan habis.
+  /// Mengembalikan teks tiap potongan, atau null bila gagal.
+  Future<List<String>?> _finishLive() async {
+    final tx = _tx;
+    final splitter = _splitter;
+    final done = _liveDone;
+    if (tx == null || splitter == null || done == null) {
+      _fail('Rekaman tidak tersedia. Silakan ulangi.');
+      return null;
+    }
+    try {
+      await _io.stopLiveRecording();
+    } catch (_) {}
+    for (final c in splitter.finish()) {
+      tx.add(c);
+    }
+    _splitter = null;
+    if (tx.submitted == 0) {
+      _fail('Tidak ada suara bacaan yang terekam. Pastikan mikrofon tidak '
+          'tertutup lalu ulangi.');
+      return null;
+    }
+    tx.close();
+    _checkStarted = DateTime.now();
+    _doneAtCheck = _liveTexts.length;
+    _showProgress(_liveTexts.length, tx.submitted);
+    final err = await done.future;
+    if (_disposed || !identical(_tx, tx)) return null;
+    await _txSub?.cancel();
+    _txSub = null;
+    _tx = null;
+    if (err != null) {
+      _fail('Pemrosesan gagal: $err');
+      return null;
+    }
+    return List.of(_liveTexts);
+  }
+
+  /// Web: rekaman utuh dipotong di jeda lalu diperiksa satu per satu.
+  Future<List<String>?> _finishBatch() async {
     final List<Float32List> chunks;
     try {
       // Rekaman langsung dihapus setelah dimuat ke memori.
@@ -233,12 +384,12 @@ class MurajaahController extends ChangeNotifier {
     } catch (e) {
       await _io.discardRecording();
       _fail('Rekaman tidak bisa dibaca: $e');
-      return;
+      return null;
     }
     if (chunks.isEmpty) {
       _fail('Tidak ada suara bacaan yang terekam. Pastikan mikrofon tidak '
           'tertutup lalu ulangi.');
-      return;
+      return null;
     }
 
     final texts = <String>[];
@@ -269,34 +420,12 @@ class MurajaahController extends ChangeNotifier {
     });
     final err = await done.future;
     _trSub = null;
-    if (_disposed) return;
+    if (_disposed) return null;
     if (err != null) {
       _fail('Pemrosesan gagal: $err');
-      return;
+      return null;
     }
-
-    final heard = ArabicMatcher.normalize(texts.join(' '));
-    verdicts = ArabicMatcher.review(ayahs, heard, threshold);
-    final wrong = {
-      for (final v in verdicts)
-        if (v.verdict != Verdict.correct) '${v.ayah.surah}:${v.ayah.ayah}'
-    };
-    recordedSurahs = await ParentReport.instance.recordSession(
-      ayahs: ayahs,
-      mode: 'Murajaah',
-      failed: (a) => wrong.contains('${a.surah}:${a.ayah}'),
-      errorsOf: (_) => 0,
-    );
-    phase = MurajaahPhase.done;
-    message = wrong.isEmpty
-        ? 'Masya Allah, semua ayat benar!'
-        : '${wrong.length} ayat perlu diperbaiki';
-    if (wrong.isEmpty) {
-      HapticFeedback.lightImpact();
-    } else {
-      HapticFeedback.heavyImpact();
-    }
-    _notify();
+    return texts;
   }
 
   static String _fmtSec(int s) =>
@@ -324,6 +453,7 @@ class MurajaahController extends ChangeNotifier {
     _cancelDownload = true;
     _stopTimers();
     _trSub?.cancel();
+    _cancelLive();
     _io.closeRecorder();
     super.dispose();
   }
@@ -401,21 +531,26 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
     final m = Settings.instance.model;
     final ready = await murajaahIO.hasModel(m);
     if (m != c.model || !ready) {
-      if (!ready && c.phase == MurajaahPhase.reading && c.elapsed.inSeconds > 5) {
+      if ((!ready || c.restartsOnModelChange) &&
+          c.phase == MurajaahPhase.reading &&
+          c.elapsed.inSeconds > 5) {
         final ok = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: Text('Unduh model ${m.label}?'),
-            content: const Text(
-                'Model ini belum diunduh. Rekaman yang sedang berjalan akan '
-                'dihentikan dan dihapus, lalu dimulai lagi setelah unduhan selesai.'),
+            title: Text(ready ? 'Ganti ke model ${m.label}?' : 'Unduh model ${m.label}?'),
+            content: Text(ready
+                ? 'Bacaan sedang diperiksa dengan model ${c.model.label}. Bila '
+                    'diganti, rekaman yang sedang berjalan dihentikan dan '
+                    'dimulai lagi dari awal.'
+                : 'Model ini belum diunduh. Rekaman yang sedang berjalan akan '
+                    'dihentikan dan dihapus, lalu dimulai lagi setelah unduhan selesai.'),
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
                   child: const Text('Batal')),
               FilledButton(
                   onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Unduh')),
+                  child: Text(ready ? 'Ganti' : 'Unduh')),
             ],
           ),
         );

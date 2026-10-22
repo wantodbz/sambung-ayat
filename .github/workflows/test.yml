@@ -23,6 +23,20 @@ jobs:
           v=$(grep -A9 '^  speech_to_text:' pubspec.lock | grep 'version:' | head -1 | tr -d ' "')
           echo "::notice title=Versi speech_to_text::$v"
 
+      - name: Periksa kode (analyzer)
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings lib test > analyze.log 2>&1
+          code=$?
+          tail -30 analyze.log
+          if [ $code -ne 0 ]; then
+            msg=$(grep -E "error •" analyze.log | head -30 | cut -c1-300 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=Kode tidak lolos analyzer::$msg"
+          fi
+          w=$(grep -cE "warning •" analyze.log)
+          [ "$w" -gt 0 ] && echo "::warning title=Peringatan analyzer ($w)::$(grep -E 'warning •' analyze.log | head -10 | cut -c1-250 | sed ':a;N;$!ba;s/\n/%0A/g')"
+          exit $code
+
       - name: Jalankan uji
         run: |
           set +e

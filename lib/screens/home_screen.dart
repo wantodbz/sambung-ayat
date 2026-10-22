@@ -153,6 +153,31 @@ class HomeScreen extends StatelessWidget {
                       },
                     ),
                   const SizedBox(height: 12),
+                  const Text('Jeda tunggu Sambung Ayat',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  const Text(
+                      'Lama diam (misalnya saat lupa di tengah ayat) sebelum '
+                      'bacaan dinilai dan lanjut ke ayat berikutnya.',
+                      style: TextStyle(color: Colors.black54)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final s in Settings.quietChoices)
+                        ChoiceChip(
+                          label: Text('$s detik'),
+                          selected: Settings.instance.quietSeconds == s,
+                          selectedColor: AppColors.orangeSoft,
+                          onSelected: (_) async {
+                            await Settings.instance.setQuietSeconds(s);
+                            setState(() {});
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
                   const Text('Qari murottal',
                       style:
                           TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),

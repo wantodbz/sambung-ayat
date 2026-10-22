@@ -36,7 +36,7 @@ class SessionController extends ChangeNotifier {
     SpeechEngine? engine,
     MurottalPlayer? player,
     this.waitSeconds = 15,
-    this.quietSeconds = 3,
+    this.quietSeconds = 5,
   })  : _engine = engine,
         _player = player;
 
@@ -48,7 +48,8 @@ class SessionController extends ChangeNotifier {
   /// Batas menunggu sebelum suara bacaan pertama terdengar (detik).
   final int waitSeconds;
 
-  /// Lama diam setelah membaca sebelum lanjut otomatis (detik, tidak tampil).
+  /// Lama diam setelah membaca sebelum lanjut otomatis (detik, tidak tampil;
+  /// bisa diatur 3–7 detik di Pengaturan).
   final int quietSeconds;
 
   final SpeechEngine? _engine;
@@ -75,7 +76,7 @@ class SessionController extends ChangeNotifier {
   bool voiceHeard = false;
   Timer? _countdownTimer;
   int _silentTicks = 0; // sebelum ada suara (hitung mundur 15 detik)
-  int _quietTicks = 0; // diam setelah ada suara (3 detik, tidak tampil)
+  int _quietTicks = 0; // diam setelah ada suara (quietSeconds, tidak tampil)
   int _voiceTicks = 0; // lama giliran sejak suara pertama
   int _capTicks = 0; // batas aman bila "suara" tak kunjung berhenti
   bool _partialsSeen = false; // perangkat mengirim hasil sementara
@@ -335,9 +336,11 @@ class SessionController extends ChangeNotifier {
     _quietTicks = 0;
     _voiceTicks = 0;
     // Batas aman (mis. ruangan bising terus terbaca sebagai kata):
-    // 20 detik + 0,4 detik per huruf ayat.
+    // 20 detik + 0,4 detik per huruf ayat, ditambah kelonggaran bila jeda
+    // tunggu diatur lebih dari 3 detik (anak sering berhenti untuk mengingat).
     final len = ArabicMatcher.normalize(current?.text ?? '').length;
-    _capTicks = ((20 + len * 0.4) * _ticksPerSecond).round();
+    final extra = 2 * (quietSeconds - 3).clamp(0, 10);
+    _capTicks = ((20 + extra + len * 0.4) * _ticksPerSecond).round();
     _notify();
   }
 

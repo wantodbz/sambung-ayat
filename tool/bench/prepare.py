@@ -3,7 +3,8 @@
 - At-Tahrim ayat 1-12 (Syaikh Aiman Suwaid, EveryAyah) disambung menjadi satu
   rekaman "jernih".
 - Versi "anak": nada dinaikkan ±4 semiton dan diberi bising latar, untuk
-  meniru bacaan anak di rumah.
+  meniru bacaan anak di rumah. Versi "sulit": nada +6 semiton, 15% lebih
+  cepat, bergema, dan bising keras.
 - Keduanya dipotong di jeda persis seperti aplikasi (lib/services/audio_split.dart)
   lalu disimpan per potongan, beserta teks ayat yang seharusnya.
 """
@@ -106,8 +107,17 @@ def main():
            "[v][1:a]amix=inputs=2:duration=first:normalize=0[out]",
            "-map", "[out]", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", anak)
 
+    # "sulit": nada lebih tinggi, bacaan lebih cepat, gema ruangan, bising keras.
+    sulit = os.path.join(OUT, "sulit.wav")
+    ffmpeg("-i", jernih,
+           "-f", "lavfi", "-i", "anoisesrc=color=pink:amplitude=0.06:sample_rate=16000:seed=11",
+           "-filter_complex",
+           "[0:a]asetrate=22627,aresample=16000,atempo=0.8132,aecho=0.8:0.7:40:0.3[v];"
+           "[v][1:a]amix=inputs=2:duration=first:normalize=0[out]",
+           "-map", "[out]", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", sulit)
+
     manifest = {}
-    for name, path in (("jernih", jernih), ("anak", anak)):
+    for name, path in (("jernih", jernih), ("anak", anak), ("sulit", sulit)):
         data = read_wav(path)
         pcm = [v / 32768.0 for v in data]
         parts = []

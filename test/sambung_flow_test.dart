@@ -1,7 +1,7 @@
 // Uji alur Sambung Ayat dengan pengenal suara & pemutar tiruan:
 // bacaan salah/tidak terbaca tetap lanjut, hitung mundur 15 detik hanya
-// sampai suara bacaan terdengar, diam 3 detik setelah membaca langsung
-// lanjut, dan koreksi ditampilkan di akhir.
+// sampai suara bacaan terdengar, diam sesuai jeda tunggu (3–7 detik) setelah
+// membaca langsung lanjut, dan koreksi ditampilkan di akhir.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -58,7 +58,8 @@ class FakePlayer extends MurottalPlayer {
   Future<void> dispose() async {}
 }
 
-SessionController makeController(FakeEngine e, FakePlayer p) =>
+SessionController makeController(FakeEngine e, FakePlayer p,
+        {int quietSeconds = 3}) =>
     SessionController(
       mode: SessionMode.sambungAyat,
       ayahs: QuranData.instance.rangeSurah(112), // Al-Ikhlas, 4 ayat
@@ -66,6 +67,7 @@ SessionController makeController(FakeEngine e, FakePlayer p) =>
       title: 'QS. Al-Ikhlas',
       engine: e,
       player: p,
+      quietSeconds: quietSeconds,
     );
 
 void main() {
@@ -278,6 +280,37 @@ void main() {
     expect(find.byType(MistakeCard), findsNWidgets(2));
 
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('jeda tunggu 7 detik: berhenti untuk mengingat tidak terpotong',
+      (tester) async {
+    final e = FakeEngine();
+    final p = FakePlayer();
+    final c = makeController(e, p, quietSeconds: 7);
+    unawaited(c.start());
+    await tester.pump(const Duration(seconds: 5));
+    expect(c.current!.ayah, 2);
+    e.say('الله', isFinal: false); // mulai membaca lalu berhenti (lupa)
+    await tester.pump(const Duration(seconds: 6));
+    expect(c.phase, Phase.listening); // diam 6 detik: masih menunggu
+    expect(c.verdicts, isEmpty);
+    e.say('الله الص', isFinal: false); // ingat lagi lalu melanjutkan
+    await tester.pump(const Duration(seconds: 6));
+    expect(c.phase, Phase.listening);
+    expect(c.verdicts, isEmpty);
+    await tester.pump(const Duration(milliseconds: 1500)); // diam 7,5 detik
+    expect(c.verdicts.single.verdict, Verdict.wrong);
+    c.dispose();
+    await tester.pump(const Duration(seconds: 5)); // habiskan timer tersisa
+  });
+
+  test('pengaturan jeda tunggu tersimpan (bawaan 5 detik)', () async {
+    expect(Settings.instance.quietSeconds, 5);
+    await Settings.instance.setQuietSeconds(6);
+    Settings.instance.quietSeconds = 5;
+    await Settings.instance.load();
+    expect(Settings.instance.quietSeconds, 6);
+    await Settings.instance.setQuietSeconds(5);
   });
 
   test('folder EveryAyah tiap qari', () {
