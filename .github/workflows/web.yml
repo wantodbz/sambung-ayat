@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -76,6 +76,7 @@ jobs:
 
       - name: Uji di browser (WebKit & Chromium)
         continue-on-error: true
+        timeout-minutes: 20
         run: |
           mkdir -p site && cp -r build/web site/sambung-ayat
           mkdir -p site/sambung-ayat/test && cp ikhlas.wav site/sambung-ayat/test/ || true
@@ -90,7 +91,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -102,10 +103,11 @@ jobs:
   # kompresi gzip): unduh model lewat aplikasi di WebKit (≈ Safari) & Chromium.
   cek-tayang:
     needs: deploy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Unduh model dari situs yang tayang
+        timeout-minutes: 25
         run: |
           npm i --no-save --silent playwright@1.48.2
           npx playwright install --with-deps webkit chromium > /dev/null 2>&1

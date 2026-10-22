@@ -5,7 +5,7 @@ on:
 
 jobs:
   cek:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Cek Al-Qasas 87 Muhammad Ayyub
         run: |
