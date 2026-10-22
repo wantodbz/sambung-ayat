@@ -24,6 +24,16 @@ jobs:
             done
           done
 
+      - name: CORS sumber murottal (untuk Web Audio API)
+        run: |
+          o="Origin: https://wantodbz.github.io"
+          for u in https://everyayah.com/data/Ayman_Sowaid_64kbps/001001.mp3 \
+                   https://cdn.islamic.network/quran/audio/64/ar.aymanswoaid/1.mp3; do
+            h=$(curl -s -o /dev/null -D - -H "$o" "$u" | tr -d '\r' | grep -iE "^HTTP|access-control-allow-origin|content-type" | tr '\n' ' ')
+            echo "::notice title=CORS $(echo $u | cut -d/ -f3)::$h"
+          done
+          curl -s "https://api.alquran.cloud/v1/edition?format=audio&type=versebyverse" | python3 -c "import json,sys; d=json.load(sys.stdin)['data']; print('::notice title=Edisi audio alquran.cloud::' + ' '.join(e['identifier'] for e in d))" || true
+
       - name: Unduh model lewat aplikasi (WebKit & Chromium)
         run: |
           npm i --no-save --silent playwright@1.48.2
