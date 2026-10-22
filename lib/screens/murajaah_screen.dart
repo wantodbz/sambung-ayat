@@ -312,8 +312,8 @@ class MurajaahController extends ChangeNotifier {
     final texts = _live ? await _finishLive() : await _finishBatch();
     if (texts == null || _disposed) return;
 
-    final heard = ArabicMatcher.normalize(texts.join(' '));
-    verdicts = ArabicMatcher.review(ayahs, heard, threshold);
+    // Teks apa adanya (berharakat) agar bagian yang salah bisa ditampilkan.
+    verdicts = ArabicMatcher.review(ayahs, texts.join(' '), threshold);
     final wrong = {
       for (final v in verdicts)
         if (v.verdict != Verdict.correct) '${v.ayah.surah}:${v.ayah.ayah}'

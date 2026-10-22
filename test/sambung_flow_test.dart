@@ -99,6 +99,8 @@ void main() {
     expect(c.phase, Phase.wrong);
     expect(c.verdicts.single.verdict, Verdict.wrong);
     expect(c.verdicts.single.wrongChars, isNotEmpty);
+    expect(c.verdicts.single.heard, isNotEmpty);
+    expect(c.verdicts.single.corrections, isNotEmpty);
 
     await tester.pump(const Duration(seconds: 2));
     expect(c.phase, Phase.playing);
@@ -278,6 +280,12 @@ void main() {
     expect(find.text('2 ayat perlu diperbaiki'), findsOneWidget);
     expect(find.text('Benar 0 dari 2 ayat yang Anda baca'), findsOneWidget);
     expect(find.byType(MistakeCard), findsNWidgets(2));
+    // Ayat 4 berhenti di tengah: bagian sisanya tampil "tidak terdengar"
+    // beserta tulisan yang seharusnya.
+    expect(c.verdicts.last.heard, 'ولم يكن');
+    expect(find.text('Terdengar'), findsOneWidget);
+    expect(find.text('Seharusnya'), findsOneWidget);
+    expect(find.text('(tidak terdengar)'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
   });

@@ -4,6 +4,16 @@ import '../data/quran.dart';
 
 enum Verdict { correct, wrong, notRead }
 
+/// Satu bagian bacaan yang salah: apa yang terdengar dan seharusnya apa.
+class Correction {
+  /// Tulisan yang terdengar oleh aplikasi ('' = tidak terdengar).
+  final String heard;
+
+  /// Tulisan ayat yang seharusnya dibaca.
+  final String expected;
+  const Correction(this.heard, this.expected);
+}
+
 /// Hasil koreksi satu ayat pada murajaah.
 class AyahVerdict {
   final Ayah ayah;
@@ -12,8 +22,34 @@ class AyahVerdict {
 
   /// Indeks karakter teks ayat yang diwarnai merah (hanya untuk [Verdict.wrong]).
   final Set<int> wrongChars;
+
+  /// Tulisan yang terdengar untuk ayat ini (apa adanya dari pengenal suara).
+  final String heard;
+
+  /// Bagian yang salah: terdengar → seharusnya.
+  final List<Correction> corrections;
   const AyahVerdict(this.ayah, this.verdict, this.similarity,
-      [this.wrongChars = const {}]);
+      [this.wrongChars = const {},
+      this.heard = '',
+      this.corrections = const []]);
+}
+
+/// Penyelarasan rinci satu ayat dengan bacaan terdengar (ternormalisasi).
+class _Alignment {
+  _Alignment(this.map, this.wrong, this.at, this.start, this.end);
+
+  /// Huruf ayat ternormalisasi -> indeks karakter teks ayat asli.
+  final List<int> map;
+
+  /// Huruf ayat (ternormalisasi) yang terbaca lain atau tidak terdengar.
+  final Set<int> wrong;
+
+  /// Huruf ayat -> indeks huruf terdengar yang dipasangkan (-1 = tidak ada).
+  final List<int> at;
+
+  /// Rentang huruf terdengar yang dipakai ayat ini.
+  final int start;
+  final int end;
 }
 
 /// Hasil pencocokan bacaan dengan satu ayat.
@@ -99,59 +135,168 @@ class ArabicMatcher {
     return (sb.toString(), map);
   }
 
-  /// Indeks karakter pada [text] (teks ayat asli) yang perlu diwarnai merah:
-  /// huruf yang terbaca lain atau tidak terdengar, beserta harakatnya.
-  /// Bila separuh huruf atau lebih dalam satu kata salah, seluruh kata diwarnai.
-  static Set<int> wrongChars(
+  /// Selaraskan huruf ayat [text] dengan [heard] (ternormalisasi) pada rentang
+  /// [from]..[end]; awal boleh bergeser sampai [slack] huruf.
+  static _Alignment _align(
       String text, String heard, int from, int slack, int end) {
     final (exp, map) = normalizeWithMap(text);
     final l = exp.length;
     final wrongNorm = <int>{};
+    final at = List<int>.filled(l, -1);
     final e = math.min(end, heard.length);
     if (e <= from || l == 0) {
       for (var i = 0; i < l; i++) {
         wrongNorm.add(i);
       }
-    } else {
-      final s = heard.substring(from, e);
-      final n = s.length;
-      final d = List.generate(l + 1, (_) => List<int>.filled(n + 1, 0));
-      for (var j = 0; j <= n; j++) {
-        d[0][j] = j <= slack ? 0 : 2 * (j - slack);
-      }
-      for (var i = 1; i <= l; i++) {
-        d[i][0] = i;
-        final ca = exp.codeUnitAt(i - 1);
-        final row = d[i];
-        final up = d[i - 1];
-        for (var j = 1; j <= n; j++) {
-          var v = up[j - 1] + (ca == s.codeUnitAt(j - 1) ? 0 : 2);
-          if (up[j] + 1 < v) v = up[j] + 1;
-          if (row[j - 1] + 2 < v) v = row[j - 1] + 2;
-          row[j] = v;
-        }
-      }
-      var i = l;
-      var j = n;
-      while (i > 0) {
-        if (j > 0) {
-          final c = exp.codeUnitAt(i - 1) == s.codeUnitAt(j - 1) ? 0 : 2;
-          if (d[i][j] == d[i - 1][j - 1] + c) {
-            if (c != 0) wrongNorm.add(i - 1);
-            i--;
-            j--;
-            continue;
-          }
-          if (d[i][j] == d[i][j - 1] + 2) {
-            j--;
-            continue;
-          }
-        }
-        wrongNorm.add(i - 1); // huruf ayat tidak terdengar
-        i--;
+      return _Alignment(map, wrongNorm, at, from, math.max(from, e));
+    }
+    final s = heard.substring(from, e);
+    final n = s.length;
+    final d = List.generate(l + 1, (_) => List<int>.filled(n + 1, 0));
+    for (var j = 0; j <= n; j++) {
+      d[0][j] = j <= slack ? 0 : 2 * (j - slack);
+    }
+    for (var i = 1; i <= l; i++) {
+      d[i][0] = i;
+      final ca = exp.codeUnitAt(i - 1);
+      final row = d[i];
+      final up = d[i - 1];
+      for (var j = 1; j <= n; j++) {
+        var v = up[j - 1] + (ca == s.codeUnitAt(j - 1) ? 0 : 2);
+        if (up[j] + 1 < v) v = up[j] + 1;
+        if (row[j - 1] + 2 < v) v = row[j - 1] + 2;
+        row[j] = v;
       }
     }
+    var i = l;
+    var j = n;
+    while (i > 0) {
+      if (j > 0) {
+        final c = exp.codeUnitAt(i - 1) == s.codeUnitAt(j - 1) ? 0 : 2;
+        if (d[i][j] == d[i - 1][j - 1] + c) {
+          at[i - 1] = from + j - 1;
+          if (c != 0) wrongNorm.add(i - 1);
+          i--;
+          j--;
+          continue;
+        }
+        if (d[i][j] == d[i][j - 1] + 2) {
+          j--;
+          continue;
+        }
+      }
+      wrongNorm.add(i - 1); // huruf ayat tidak terdengar
+      i--;
+    }
+    return _Alignment(map, wrongNorm, at, from + j, e);
+  }
 
+  /// Indeks karakter pada [text] (teks ayat asli) yang perlu diwarnai merah:
+  /// huruf yang terbaca lain atau tidak terdengar, beserta harakatnya.
+  /// Bila separuh huruf atau lebih dalam satu kata salah, seluruh kata diwarnai.
+  static Set<int> wrongChars(
+          String text, String heard, int from, int slack, int end) =>
+      _redChars(text, _align(text, heard, from, slack, end));
+
+  /// Rincian koreksi satu ayat: huruf merah, tulisan yang terdengar untuk ayat
+  /// ini, dan pasangan "terdengar → seharusnya" per bagian yang salah.
+  /// [heard] adalah [heardRaw] yang sudah dinormalkan, [heardMap] petanya.
+  static (Set<int>, String, List<Correction>) explain(
+      String text,
+      String heard,
+      List<int> heardMap,
+      String heardRaw,
+      int from,
+      int slack,
+      int end) {
+    final al = _align(text, heard, from, slack, end);
+    return (
+      _redChars(text, al),
+      _rawSpan(heardRaw, heardMap, al.start, al.end),
+      _corrections(text, al, heardRaw, heardMap),
+    );
+  }
+
+  /// Potongan [raw] untuk huruf ternormalisasi [s]..[e], diperluas ke kata utuh.
+  static String _rawSpan(String raw, List<int> map, int s, int e) {
+    if (s >= e || s >= map.length) return '';
+    var rs = map[s];
+    var re = map[math.min(e, map.length) - 1] + 1;
+    while (rs > 0 && raw.codeUnitAt(rs - 1) != 0x20) {
+      rs--;
+    }
+    while (re < raw.length && raw.codeUnitAt(re) != 0x20) {
+      re++;
+    }
+    return raw.substring(rs, re).trim();
+  }
+
+  /// Kelompokkan kata ayat yang salah (berurutan) dan pasangkan dengan
+  /// tulisan yang terdengar di posisi yang sama.
+  static List<Correction> _corrections(
+      String text, _Alignment al, String raw, List<int> rawMap) {
+    // Kata ayat: (awal, akhir) karakter asli, (awal, akhir) huruf ternormalisasi.
+    final words = <(int, int, int, int)>[];
+    var k = 0;
+    var ws = 0;
+    while (ws < text.length) {
+      var we = text.indexOf(' ', ws);
+      if (we < 0) we = text.length;
+      final k0 = k;
+      while (k < al.map.length && al.map[k] < we) {
+        k++;
+      }
+      if (we > ws) words.add((ws, we, k0, k));
+      ws = we + 1;
+    }
+    bool isBad(int w) {
+      for (var x = words[w].$3; x < words[w].$4; x++) {
+        if (al.wrong.contains(x)) return true;
+      }
+      return false;
+    }
+
+    bool isGood(int x) => al.at[x] >= 0 && !al.wrong.contains(x);
+
+    final out = <Correction>[];
+    var w = 0;
+    while (w < words.length) {
+      if (!isBad(w)) {
+        w++;
+        continue;
+      }
+      var last = w;
+      var x = w + 1;
+      // Gabungkan kata salah berurutan (kata tanpa huruf, mis. tanda waqaf,
+      // tidak memutus kelompok).
+      while (x < words.length && (isBad(x) || words[x].$3 == words[x].$4)) {
+        if (isBad(x)) last = x;
+        x++;
+      }
+      var hs = al.start;
+      for (var y = words[w].$3 - 1; y >= 0; y--) {
+        if (isGood(y)) {
+          hs = al.at[y] + 1;
+          break;
+        }
+      }
+      var he = al.end;
+      for (var y = words[last].$4; y < al.at.length; y++) {
+        if (isGood(y)) {
+          he = al.at[y];
+          break;
+        }
+      }
+      out.add(Correction(_rawSpan(raw, rawMap, hs, he),
+          text.substring(words[w].$1, words[last].$2)));
+      w = last + 1;
+    }
+    return out;
+  }
+
+  static Set<int> _redChars(String text, _Alignment al) {
+    final map = al.map;
+    final wrongNorm = al.wrong;
     // Petakan ke teks asli, per kata.
     final result = <int>{};
     var k = 0; // indeks huruf ternormalisasi
@@ -363,11 +508,13 @@ class ArabicMatcher {
     return best;
   }
 
-  /// Periksa seluruh bacaan [heard] (ternormalisasi) terhadap [ayahs].
+  /// Periksa seluruh bacaan [heardRaw] (teks apa adanya dari pengenal suara)
+  /// terhadap [ayahs].
   static List<AyahVerdict> review(
-      List<Ayah> ayahs, String heard, double threshold) {
+      List<Ayah> ayahs, String heardRaw, double threshold) {
     final result = <AyahVerdict>[];
     if (ayahs.isEmpty) return result;
+    final (heard, heardMap) = normalizeWithMap(heardRaw);
     var pos = leadingExtras(heard, candidates(ayahs.first).first);
     var slack = 25;
     for (var i = 0; i < ayahs.length; i++) {
@@ -384,21 +531,27 @@ class ArabicMatcher {
         slack = 6;
         continue;
       }
-      result.add(AyahVerdict(a, Verdict.wrong, best.$1,
-          wrongChars(a.text, heard, pos, slack, best.$2)));
       final l = candidates(a).first.length;
+      // Apakah ayat ini terlewat (tidak dibaca) atau dibaca tetapi salah?
+      var skippedThis = false;
       if (i + 1 < ayahs.length) {
         final next = ayahs[i + 1];
-        // Apakah ayat ini terlewat (tidak dibaca) atau dibaca tetapi salah?
         final skipped = _bestAlign(next, heard, pos, slack + l + 20);
         final readWrong = _bestAlign(next, heard, best.$2, 6);
-        if (skipped.$1 > readWrong.$1 + 0.05) {
-          slack = slack + l + 20;
-        } else {
-          pos = best.$2;
-          slack = 6;
-        }
+        skippedThis = skipped.$1 > readWrong.$1 + 0.05;
       }
+      if (skippedThis) {
+        // Bacaan sesudahnya cocok dengan ayat berikutnya: ayat ini terlewat.
+        result.add(AyahVerdict(a, Verdict.notRead, best.$1));
+        slack = slack + l + 20;
+        continue;
+      }
+      final (red, heardText, corrections) =
+          explain(a.text, heard, heardMap, heardRaw, pos, slack, best.$2);
+      result.add(AyahVerdict(
+          a, Verdict.wrong, best.$1, red, heardText, corrections));
+      pos = best.$2;
+      slack = 6;
     }
     return result;
   }

@@ -505,10 +505,18 @@ class SessionController extends ChangeNotifier {
 
   void _onWrong(Ayah a, String cur, double similarity) {
     Set<int> wrong = const {};
+    var heardText = '';
+    var corrections = const <Correction>[];
     try {
-      wrong = ArabicMatcher.wrongChars(a.text, cur, 0, 6, cur.length);
+      // Teks apa adanya dari pengenal suara, untuk ditampilkan di koreksi.
+      final raw = '$_finalRaw $_partialRaw'.trim();
+      final (norm, map) = ArabicMatcher.normalizeWithMap(raw);
+      final lead = math.max(0, norm.length - cur.length); // ta'awudz/basmalah
+      (wrong, heardText, corrections) = ArabicMatcher.explain(
+          a.text, norm, map, raw, lead, 6, norm.length);
     } catch (_) {}
-    verdicts.add(AyahVerdict(a, Verdict.wrong, similarity, wrong));
+    verdicts.add(
+        AyahVerdict(a, Verdict.wrong, similarity, wrong, heardText, corrections));
     phase = Phase.wrong;
     message = 'Ayat ${a.ayah} dicatat untuk dikoreksi di akhir. Lanjut…';
     _haptic(strong: true);
