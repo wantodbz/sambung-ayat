@@ -474,6 +474,8 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
   void initState() {
     super.initState();
     c.addListener(_onChange);
+    // Layar mati membuat HP memperlambat pemeriksaan (bisa sangat lama).
+    keepScreenOn(true);
     WidgetsBinding.instance.addPostFrameCallback((_) => c.start());
   }
 
@@ -483,6 +485,7 @@ class _MurajaahScreenState extends State<MurajaahScreen> {
 
   @override
   void dispose() {
+    keepScreenOn(false);
     c.removeListener(_onChange);
     c.dispose();
     super.dispose();

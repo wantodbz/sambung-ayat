@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/quran.dart';
 import '../main.dart';
+import '../platform/platform.dart';
 import '../widgets/mistake_card.dart';
 import 'session_controller.dart';
 
@@ -21,6 +22,7 @@ class _SessionScreenState extends State<SessionScreen> {
   void initState() {
     super.initState();
     c.addListener(_onChange);
+    keepScreenOn(true); // layar mati = mikrofon berhenti
     if (SessionController.needsGesture) {
       c.message = 'Ketuk "Mulai" untuk memulai.';
     } else {
@@ -35,6 +37,7 @@ class _SessionScreenState extends State<SessionScreen> {
 
   @override
   void dispose() {
+    keepScreenOn(false);
     c.removeListener(_onChange);
     c.dispose();
     super.dispose();

@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:quran_whisper/quran_whisper.dart';
@@ -19,6 +21,14 @@ MurottalPlayer createMurottalPlayer() => _NativePlayer();
 MurajaahIO createMurajaahIO() => _NativeMurajaahIO();
 const bool streamsAudio = false;
 bool browserSpeech() => false;
+
+const _screen = MethodChannel('sambung_ayat/layar');
+
+Future<void> keepScreenOn(bool on) async {
+  try {
+    await _screen.invokeMethod<void>('tetapNyala', on);
+  } catch (_) {}
+}
 
 class _NativePlayer extends MurottalPlayer {
   final AudioPlayer _p = AudioPlayer();
@@ -258,5 +268,26 @@ int maxTokensFor(double seconds) => math.min(220, (seconds * 12).ceil() + 16);
 /// At-Tahrim hasilnya sama dan proses ±40% lebih cepat.
 int audioCtxFor(double seconds) => math.min(1500, (seconds * 50).floor() + 64);
 
-/// Pustaka native yang dipakai (varian sesuai kemampuan prosesor).
-Future<String> whisperLibrary() async => 'libquran_whisper.so';
+String? _whisperLib;
+
+/// Pustaka native yang dipakai: varian dot-product (±2x lebih cepat) bila
+/// prosesor 64-bit mendukung instruksi dot-product dan fp16; selain itu
+/// varian umum. Linux hanya menampilkan fitur yang dimiliki semua inti.
+Future<String> whisperLibrary() async {
+  final cached = _whisperLib;
+  if (cached != null) return cached;
+  var lib = 'libquran_whisper.so';
+  try {
+    if (Platform.isAndroid && Abi.current() == Abi.androidArm64) {
+      final info = await File('/proc/cpuinfo').readAsString();
+      final line = RegExp(r'^Features\s*:\s*(.*)$', multiLine: true)
+          .firstMatch(info)
+          ?.group(1);
+      final features = line?.split(RegExp(r'\s+')).toSet() ?? const <String>{};
+      if (features.contains('asimddp') && features.contains('asimdhp')) {
+        lib = 'libquran_whisper_dp.so';
+      }
+    }
+  } catch (_) {}
+  return _whisperLib = lib;
+}

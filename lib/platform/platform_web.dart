@@ -18,6 +18,15 @@ const bool streamsAudio = true;
 // ---------------------------------------------------------------------------
 // Antarmuka JS (web/js/recorder.js & web/js/qw_bridge.js)
 
+@JS('qwWake')
+external void _qwWake(bool on);
+
+Future<void> keepScreenOn(bool on) async {
+  try {
+    _qwWake(on);
+  } catch (_) {}
+}
+
 @JS('qwRecorder')
 external _QwRecorder get _recorder;
 

@@ -129,3 +129,8 @@ const bool streamsAudio = impl.streamsAudio;
 
 /// Versi web: browser punya pengenal suara bawaan (Sambung Ayat tanpa model).
 bool get browserSpeech => impl.browserSpeech();
+
+/// Jaga layar tetap menyala selama sesi latihan. Bila layar mati, HP
+/// memperlambat atau menghentikan proses (pemeriksaan Murajaah jadi sangat
+/// lama, mikrofon Sambung Ayat berhenti).
+Future<void> keepScreenOn(bool on) => impl.keepScreenOn(on);

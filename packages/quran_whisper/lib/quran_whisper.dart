@@ -287,7 +287,12 @@ class WhisperSession {
     final _FreeD free;
     final Pointer<Void> ctx;
     try {
-      final lib = _open(library);
+      DynamicLibrary lib;
+      try {
+        lib = _open(library);
+      } catch (_) {
+        lib = _open('libquran_whisper.so'); // varian umum sebagai cadangan
+      }
       final init = lib.lookupFunction<_InitC, _InitD>('qw_init');
       tr = lib.lookupFunction<_TrExC, _TrExD>('qw_transcribe_ex');
       free = lib.lookupFunction<_FreeC, _FreeD>('qw_free');

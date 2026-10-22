@@ -44,6 +44,47 @@ for d in os.listdir(icons):
         os.makedirs(dst_dir, exist_ok=True)
         shutil.copy(src, os.path.join(dst_dir, "ic_launcher.png"))
 
+# MainActivity: saluran "sambung_ayat/layar" untuk menjaga layar tetap menyala
+# selama sesi (layar mati = proses diperlambat HP, mikrofon berhenti).
+kotlin_dir = os.path.join(ROOT, "android", "app", "src", "main", "kotlin")
+activity = None
+for dirpath, _, files in os.walk(kotlin_dir):
+    if "MainActivity.kt" in files:
+        activity = os.path.join(dirpath, "MainActivity.kt")
+        break
+if activity is None:
+    raise SystemExit("MainActivity.kt tidak ditemukan di " + kotlin_dir)
+with open(activity, encoding="utf-8") as f:
+    package_line = next(l for l in f.read().splitlines() if l.startswith("package "))
+with open(activity, "w", encoding="utf-8") as f:
+    f.write(package_line + """
+
+import android.view.WindowManager
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+
+class MainActivity : FlutterActivity() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "sambung_ayat/layar")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "tetapNyala") {
+                    if (call.arguments == true) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                    result.success(null)
+                } else {
+                    result.notImplemented()
+                }
+            }
+    }
+}
+""")
+print("MainActivity:", activity)
+
 # Kunci tanda tangan rilis:
 # - "tetap"  : kunci lama, untuk APK yang dipasang langsung (menimpa versi lama).
 # - "unggah" : kunci unggah Google Play. Berkasnya didekripsi di CI dari secret
