@@ -12,3 +12,7 @@ packages/quran_whisper/src/whisper/
 /ios/
 web/whisper/qw.js
 web/whisper/qw.wasm
+/benchdata/
+/bench
+/bench_dp
+/ggml-quran-*.bin

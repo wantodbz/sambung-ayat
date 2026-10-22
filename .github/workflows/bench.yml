@@ -1,0 +1,33 @@
+name: Uji Kecepatan Murajaah
+
+# Uji banding pemeriksaan Murajaah (surat At-Tahrim): pengaturan lama vs
+# baru, di prosesor x86 dan ARM. Hasil tampil sebagai notice.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Siapkan audio, model, dan program uji
+        run: |
+          sudo apt-get install -y -qq ffmpeg > /dev/null
+          bash tool/fetch_whisper.sh
+          for m in tiny base; do
+            curl -sfL -o ggml-quran-$m.bin https://github.com/wantodbz/sambung-ayat/releases/download/model-v1/ggml-quran-$m.bin
+          done
+          python3 tool/bench/prepare.py
+          bash tool/bench/build.sh
+
+      - name: Ukur
+        run: python3 tool/bench/run.py
