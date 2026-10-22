@@ -1,0 +1,31 @@
+name: Cek Situs Web
+
+# Diagnosis versi web yang sudah tayang: tajuk HTTP berkas model dan unduhan
+# model lewat aplikasi di WebKit (≈ Safari) serta Chromium.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cek:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tajuk HTTP berkas model
+        run: |
+          for m in tiny base; do
+            u=https://wantodbz.github.io/sambung-ayat/models/ggml-quran-$m.bin
+            for enc in identity "gzip, deflate, br"; do
+              h=$(curl -s -o /dev/null -D - -H "Accept-Encoding: $enc" "$u" | tr -d '\r' | grep -iE "^HTTP|content-length|content-encoding|content-type|cache-control|accept-ranges" | tr '\n' ' ')
+              echo "::notice title=$m ($enc)::$h"
+            done
+          done
+
+      - name: Unduh model lewat aplikasi (WebKit & Chromium)
+        run: |
+          npm i --no-save --silent playwright@1.48.2
+          npx playwright install --with-deps webkit chromium > /dev/null 2>&1
+          node tool/web_live_test.mjs
