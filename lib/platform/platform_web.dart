@@ -65,7 +65,8 @@ external _QwBridge get _bridge;
 
 extension type _QwBridge._(JSObject _) implements JSObject {
   external JSPromise<JSNumber> modelSize(String url);
-  external JSPromise<JSBoolean> load(String url, JSFunction onProgress);
+  external JSPromise<JSBoolean> load(
+      String url, int size, JSFunction onProgress);
   external JSPromise<JSString> transcribe(JSFloat32Array pcm);
   external JSPromise<JSBoolean> deleteModel(String url);
   external bool supported();
@@ -80,7 +81,7 @@ Future<void> _ensureLoaded(QuranModel m,
   final cb = ((JSNumber r, JSNumber t) {
     onProgress?.call(r.toDartInt, t.toDartInt);
   }).toJS;
-  await _bridge.load(_modelUrl(m), cb).toDart;
+  await _bridge.load(_modelUrl(m), m.bytes, cb).toDart;
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +277,7 @@ class _SafariSpeech extends SpeechEngine {
   int _gen = 0;
   int _session = 0;
   int _emptyEnds = 0;
+  int _noAudio = 0;
   bool _gotResult = false;
 
   /// Dipanggil bila Safari menolak/tidak mendukung pengenalan suara.
@@ -292,7 +294,12 @@ class _SafariSpeech extends SpeechEngine {
     _wanted = true;
     _gen++;
     _emptyEnds = 0;
-    _listen();
+    _noAudio = 0;
+    // Jeda singkat setelah murottal selesai sebelum mikrofon dibuka.
+    final gen = _gen;
+    Timer(const Duration(milliseconds: 300), () {
+      if (gen == _gen) _listen();
+    });
   }
 
   void _listen() {
@@ -304,6 +311,7 @@ class _SafariSpeech extends SpeechEngine {
       if (gen != _gen) return;
       _gotResult = true;
       _emptyEnds = 0;
+      _noAudio = 0;
       onResult?.call(t.toDart, f.toDart, session);
     }).toJS;
     final onEnd = (() {
@@ -336,6 +344,18 @@ class _SafariSpeech extends SpeechEngine {
         _wanted = false;
         onFatalError?.call('Pengenal suara Safari membutuhkan internet. '
             'Periksa koneksi lalu ketuk "Coba lagi".');
+      } else if (c == 'no-audio') {
+        // Pengenal suara macet (bug Safari iOS): buat yang baru sekali; bila
+        // masih macet, pindah ke model pengecek bacaan.
+        _listening = false;
+        onListeningChanged?.call(false);
+        if (++_noAudio >= 2) {
+          _wanted = false;
+          _gen++;
+          onUnavailable?.call('macet');
+        } else if (_wanted) {
+          Timer(const Duration(milliseconds: 500), _listen);
+        }
       }
       // 'no-speech', 'aborted', dll.: onend akan memulai ulang.
     }).toJS;

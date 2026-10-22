@@ -4,7 +4,7 @@ import '../main.dart';
 import '../platform/platform.dart';
 import 'privacy_screen.dart';
 
-const _version = '2.9';
+const _version = '2.9.1';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});

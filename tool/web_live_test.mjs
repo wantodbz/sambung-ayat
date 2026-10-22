@@ -17,7 +17,7 @@ for (const [name, bt] of [['webkit', webkit], ['chromium', chromium]]) {
       const t0 = performance.now();
       let last = 0, total = 0, n = 0;
       try {
-        await qwBridge.load(url, (rcv, tot) => { last = rcv; total = tot; n++; });
+        await qwBridge.load(url, m === 'tiny' ? 43537433 : 81768585, (rcv, tot) => { last = rcv; total = tot; n++; });
         const cached = await qwBridge.modelSize(url);
         return { ok: true, detik: +((performance.now() - t0) / 1000).toFixed(1), progres: last, total, kali: n, cache: cached };
       } catch (e) {
@@ -25,7 +25,10 @@ for (const [name, bt] of [['webkit', webkit], ['chromium', chromium]]) {
       }
     }, m);
     console.log(`::notice title=Situs ${name} model ${m}::${JSON.stringify(r)}`);
-    if (!r.ok) console.log(`::warning title=Log ${name} ${m}::${logs.slice(-15).join(' | ').slice(0, 900)}`);
+    if (!r.ok) {
+      console.log(`::error title=Unduh model ${m} gagal (${name})::${r.err} | ${logs.slice(-10).join(' | ').slice(0, 700)}`);
+      process.exitCode = 1;
+    }
   }
   await browser.close();
 }

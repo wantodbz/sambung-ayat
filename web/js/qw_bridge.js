@@ -36,7 +36,12 @@
   window.qwBridge = {
     // Ukuran model tersimpan (0 bila belum ada).
     modelSize: async (url) => (await call({ type: 'has', url })).size,
-    load: async (url, onProgress) => { await call({ type: 'load', url }, onProgress); return true; },
+    // size: ukuran asli model (bita) untuk memeriksa keutuhan unduhan.
+    load: async (url, size, onProgress) => {
+      if (typeof size === 'function') { onProgress = size; size = 0; }
+      await call({ type: 'load', url, size: size || 0 }, onProgress);
+      return true;
+    },
     transcribe: async (pcm) => {
       // Salin hanya bagian ini (pcm bisa berupa potongan dari rekaman besar).
       const copy = pcm.slice();

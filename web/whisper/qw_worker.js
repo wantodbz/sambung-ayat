@@ -11,15 +11,21 @@ async function getModule() {
   return Module;
 }
 
-async function fetchModel(url, id) {
+// expected: ukuran asli berkas model (bita). GitHub Pages mengirim berkas
+// terkompresi (gzip) sehingga Content-Length = ukuran terkompresi, bukan
+// jumlah bita yang diterima setelah dibuka browser.
+async function fetchModel(url, id, expected) {
   const cache = await caches.open('sambung-ayat-model');
   let res = await cache.match(url);
   if (res) {
-    return new Uint8Array(await res.arrayBuffer());
+    const cached = new Uint8Array(await res.arrayBuffer());
+    if (!expected || cached.length === expected) return cached;
+    await cache.delete(url); // simpanan rusak/lama: unduh ulang
   }
   res = await fetch(url);
   if (!res.ok) throw new Error('Server menjawab ' + res.status);
-  const total = Number(res.headers.get('Content-Length')) || 0;
+  const compressed = !!res.headers.get('Content-Encoding');
+  const total = expected || (compressed ? 0 : Number(res.headers.get('Content-Length')) || 0);
   const reader = res.body.getReader();
   const parts = [];
   let received = 0, lastSent = 0;
@@ -36,7 +42,9 @@ async function fetchModel(url, id) {
   const bytes = new Uint8Array(received);
   let o = 0;
   for (const p of parts) { bytes.set(p, o); o += p.length; }
-  if (total && received !== total) throw new Error('Unduhan terputus');
+  if (total && received !== total) {
+    throw new Error('Unduhan terputus (' + received + ' dari ' + total + ' bita)');
+  }
   try {
     await cache.put(url, new Response(bytes, { headers: { 'Content-Length': String(received) } }));
   } catch (_) { /* memori browser penuh: tetap lanjut tanpa cache */ }
@@ -50,7 +58,7 @@ onmessage = async (e) => {
       const url = e.data.url;
       if (ctx && loadedUrl === url) { postMessage({ id, type: 'done' }); return; }
       const M = await getModule();
-      const bytes = await fetchModel(url, id);
+      const bytes = await fetchModel(url, id, e.data.size || 0);
       if (ctx) { M._qw_free(ctx); ctx = 0; loadedUrl = null; }
       const ptr = M._malloc(bytes.length);
       M.HEAPU8.set(bytes, ptr);

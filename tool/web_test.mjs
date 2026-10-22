@@ -16,7 +16,7 @@ for (const [name, bt] of [['webkit', webkit], ['chromium', chromium]]) {
     const t0 = performance.now();
     try {
       let last = 0;
-      await qwBridge.load(base + 'models/ggml-quran-tiny.bin', (rcv) => { last = rcv; });
+      await qwBridge.load(base + 'models/ggml-quran-tiny.bin', 43537433, (rcv) => { last = rcv; });
       const t1 = performance.now();
       const buf = await (await fetch(base + 'test/ikhlas.wav')).arrayBuffer();
       const dv = new DataView(buf);

@@ -18,6 +18,12 @@ extension QuranModelX on QuranModel {
         QuranModel.akurat => 'Akurat',
       };
 
+  /// Ukuran asli berkas model (bita), untuk memeriksa keutuhan unduhan.
+  int get bytes => switch (this) {
+        QuranModel.cepat => 43537433,
+        QuranModel.akurat => 81768585,
+      };
+
   String get hint => switch (this) {
         QuranModel.cepat =>
           'Unduhan ±45 MB. Koreksi lebih cepat, cocok untuk HP lama.',

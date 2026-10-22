@@ -97,3 +97,16 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Uji situs yang sudah tayang (server GitHub Pages sungguhan, termasuk
+  # kompresi gzip): unduh model lewat aplikasi di WebKit (≈ Safari) & Chromium.
+  cek-tayang:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Unduh model dari situs yang tayang
+        run: |
+          npm i --no-save --silent playwright@1.48.2
+          npx playwright install --with-deps webkit chromium > /dev/null 2>&1
+          node tool/web_live_test.mjs
